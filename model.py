@@ -593,7 +593,7 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config)
     return rois, roi_gt_class_ids, deltas, masks
 
 
-def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypoints, gt_masks, config):
+def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_bodyweight, gt_masks, config):
     """Generates detection targets for one image. Subsamples proposals and
     generates target class IDs, bounding box deltas, and masks for each.
 
@@ -629,12 +629,9 @@ def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypo
     proposals, _ = trim_zeros_graph(proposals, name="trim_proposals")
     #non_zeros:[N_box,1] true false
     gt_boxes, non_zeros = trim_zeros_graph(gt_boxes, name="trim_gt_boxes")
-    gt_class_ids = tf.boolean_mask(gt_class_ids, non_zeros,
-                                   name="trim_gt_class_ids")
-    gt_keypoints = tf.gather(gt_keypoints, tf.where(non_zeros)[:, 0], axis=0,
-                         name="trim_gt_keypoints")
-    gt_masks = tf.gather(gt_masks, tf.where(non_zeros)[:, 0], axis=2,
-                         name="trim_gt_masks")
+    gt_class_ids = tf.boolean_mask(gt_class_ids, non_zeros, name="trim_gt_class_ids")
+    gt_bodyweight = tf.boolean_mask(gt_bodyweight, non_zeros, name="trim_gt_bodyweight")
+    gt_masks = tf.gather(gt_masks, tf.where(non_zeros)[:, 0], axis=2, name="trim_gt_masks")
 
     # Handle COCO crowds
     # A crowd box in COCO is a bounding box around several instances. Exclude
@@ -642,12 +639,13 @@ def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypo
     crowd_ix = tf.where(gt_class_ids < 0)[:, 0]
     non_crowd_ix = tf.where(gt_class_ids > 0)[:, 0]
     crowd_boxes = tf.gather(gt_boxes, crowd_ix)
-    crowd_keypoints = tf.gather(gt_keypoints, crowd_ix)
-    crowd_masks = tf.gather(gt_masks, crowd_ix, axis=2)
+    #crowd_keypoints = tf.gather(gt_keypoints, crowd_ix)
+    #crowd_masks = tf.gather(gt_masks, crowd_ix, axis=2)
     gt_class_ids = tf.gather(gt_class_ids, non_crowd_ix)
     gt_boxes = tf.gather(gt_boxes, non_crowd_ix)
 
-    gt_keypoints = tf.gather(gt_keypoints, non_crowd_ix)
+    #gt_keypoints = tf.gather(gt_keypoints, non_crowd_ix)
+    gt_bodyweight = tf.gather(gt_bodyweight, non_crowd_ix)
     gt_masks = tf.gather(gt_masks, non_crowd_ix, axis=2)
 
     # Compute overlaps matrix [proposals, gt_boxes]
@@ -685,6 +683,7 @@ def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypo
     roi_gt_box_assignment = tf.argmax(positive_overlaps, axis=1)
     roi_gt_boxes = tf.gather(gt_boxes, roi_gt_box_assignment)
     roi_gt_class_ids = tf.gather(gt_class_ids, roi_gt_box_assignment)
+    roi_gt_bodyweight = tf.gather(gt_bodyweight, roi_gt_box_assignment)
 
     # Compute bbox refinement for positive ROIs
     deltas = utils.box_refinement_graph(positive_rois, roi_gt_boxes)
@@ -695,7 +694,8 @@ def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypo
     # Permute masks to [N, height, width, 1]
     transposed_masks = tf.expand_dims(tf.transpose(gt_masks, [2, 0, 1]), -1)
     # Pick the right mask for each ROI
-    roi_keypoints = tf.gather(gt_keypoints, roi_gt_box_assignment)
+    #roi_keypoints = tf.gather(gt_keypoints, roi_gt_box_assignment)
+    #roi_bodyweight = tf.gather(gt_bodyweight, roi_gt_box_assignment)
     roi_masks = tf.gather(transposed_masks, roi_gt_box_assignment)
     # Compute mask targets
     boxes = positive_rois
@@ -720,52 +720,52 @@ def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypo
     masks = tf.round(masks)
 
     ## Transform ROI keypoints from (x,y) image space to keypoint label
-    y1, x1, y2, x2 = tf.split(positive_rois, 4, axis=1)
-    y1 = y1[:, 0]
-    x1 = x1[:, 0]
-    y2 = y2[:, 0]
-    x2 = x2[:, 0]
-    scale_x = tf.cast(config.KEYPOINT_MASK_SHAPE[1] / ((x2 - x1) * config.IMAGE_SHAPE[1]), tf.float32)
-    scale_y = tf.cast(config.KEYPOINT_MASK_SHAPE[0] / ((y2 - y1) * config.IMAGE_SHAPE[0]), tf.float32)
-    keypoint_lables = []
-    keypoint_weights = []
+    """ y1, x1, y2, x2 = tf.split(positive_rois, 4, axis=1) """
+    """ y1 = y1[:, 0] """
+    """ x1 = x1[:, 0] """
+    """ y2 = y2[:, 0] """
+    """ x2 = x2[:, 0] """
+    """ scale_x = tf.cast(config.KEYPOINT_MASK_SHAPE[1] / ((x2 - x1) * config.IMAGE_SHAPE[1]), tf.float32) """
+    """ scale_y = tf.cast(config.KEYPOINT_MASK_SHAPE[0] / ((y2 - y1) * config.IMAGE_SHAPE[0]), tf.float32) """
+    """ keypoint_lables = [] """
+    """ keypoint_weights = [] """
 
 
-    for k in range(config.NUM_KEYPOINTS):
-        vis = roi_keypoints[:, k, 2] > 0
-        x = tf.cast(roi_keypoints[:, k, 0], tf.float32)
-        y = tf.cast(roi_keypoints[:, k, 1], tf.float32)
+    """ for k in range(config.NUM_KEYPOINTS): """
+    """     vis = roi_keypoints[:, k, 2] > 0 """
+    """     x = tf.cast(roi_keypoints[:, k, 0], tf.float32) """
+    """     y = tf.cast(roi_keypoints[:, k, 1], tf.float32) """
 
-        # # recover from normlized corrdinates to real wordl
-        x_real = (x - x1)* config.IMAGE_SHAPE[1]
-        y_real = (y - y1)* config.IMAGE_SHAPE[0]
-        ## transform the box size into feature map size
-        x_real_map = tf.cast(x_real * scale_x+0.5, tf.int32)
-        y_real_map= tf.cast(y_real*scale_y+0.5,tf.int32)
-        x_boundary_bool = tf.cast((x_real_map == config.KEYPOINT_MASK_SHAPE[1]), tf.int32)
-        y_boundary_bool = tf.cast((y_real_map == config.KEYPOINT_MASK_SHAPE[1]), tf.int32)
-        y_real_map = y_real_map * (1 - y_boundary_bool) + y_boundary_bool * (config.KEYPOINT_MASK_SHAPE[0] - 1)
-        x_real_map = x_real_map * (1 - x_boundary_bool) + x_boundary_bool * (config.KEYPOINT_MASK_SHAPE[1] - 1)
+    """     # # recover from normlized corrdinates to real wordl """
+    """     x_real = (x - x1)* config.IMAGE_SHAPE[1] """
+    """     y_real = (y - y1)* config.IMAGE_SHAPE[0] """
+    """     ## transform the box size into feature map size """
+    """     x_real_map = tf.cast(x_real * scale_x+0.5, tf.int32) """
+    """     y_real_map= tf.cast(y_real*scale_y+0.5,tf.int32) """
+    """     x_boundary_bool = tf.cast((x_real_map == config.KEYPOINT_MASK_SHAPE[1]), tf.int32) """
+    """     y_boundary_bool = tf.cast((y_real_map == config.KEYPOINT_MASK_SHAPE[1]), tf.int32) """
+    """     y_real_map = y_real_map * (1 - y_boundary_bool) + y_boundary_bool * (config.KEYPOINT_MASK_SHAPE[0] - 1) """
+    """     x_real_map = x_real_map * (1 - x_boundary_bool) + x_boundary_bool * (config.KEYPOINT_MASK_SHAPE[1] - 1) """
 
-        valid_loc = tf.logical_and(
-            tf.logical_and(x_real_map > 0, x_real_map < config.KEYPOINT_MASK_SHAPE[0]),
-            tf.logical_and(y_real_map > 0, y_real_map < config.KEYPOINT_MASK_SHAPE[1])
-        )
-        valid = tf.logical_and(valid_loc, vis)
-        keypoint_weights.append(valid)
+    """     valid_loc = tf.logical_and( """
+    """         tf.logical_and(x_real_map > 0, x_real_map < config.KEYPOINT_MASK_SHAPE[0]), """
+    """         tf.logical_and(y_real_map > 0, y_real_map < config.KEYPOINT_MASK_SHAPE[1]) """
+    """     ) """
+    """     valid = tf.logical_and(valid_loc, vis) """
+    """     keypoint_weights.append(valid) """
 
-        valid = tf.cast(valid, tf.int32)
-        x_real_map = x_real_map * tf.cast(valid, tf.int32)
-        y_real_map = y_real_map * tf.cast(valid, tf.int32)
+    """     valid = tf.cast(valid, tf.int32) """
+    """     x_real_map = x_real_map * tf.cast(valid, tf.int32) """
+    """     y_real_map = y_real_map * tf.cast(valid, tf.int32) """
 
-        #calculate the keypoint label betwween[0, map_h*map_w)
-        keypoint_label = y_real_map * config.KEYPOINT_MASK_SHAPE[1] + x_real_map
-        keypoint_label = tf.expand_dims(keypoint_label, -1)
-        keypoint_lables.append(keypoint_label)
+    """     #calculate the keypoint label betwween[0, map_h*map_w) """
+    """     keypoint_label = y_real_map * config.KEYPOINT_MASK_SHAPE[1] + x_real_map """
+    """     keypoint_label = tf.expand_dims(keypoint_label, -1) """
+    """     keypoint_lables.append(keypoint_label) """
 
-    # shape:[N_roi, num_keypoint]
-    keypoint_lables = tf.cast(tf.concat(keypoint_lables, axis=1), tf.int32)
-    keypoint_weights = tf.cast(tf.stack(keypoint_weights, axis=1), tf.int32)
+    """ # shape:[N_roi, num_keypoint] """
+    """ keypoint_lables = tf.cast(tf.concat(keypoint_lables, axis=1), tf.int32) """
+    """ keypoint_weights = tf.cast(tf.stack(keypoint_weights, axis=1), tf.int32) """
 
 
     # Append negative ROIs and pad bbox deltas and masks that
@@ -776,14 +776,15 @@ def detection_keypoint_targets_graph(proposals, gt_class_ids, gt_boxes, gt_keypo
     rois = tf.pad(rois, [(0, P), (0, 0)])
     roi_gt_boxes = tf.pad(roi_gt_boxes, [(0, N + P), (0, 0)])
     roi_gt_class_ids = tf.pad(roi_gt_class_ids, [(0, N + P)])
+    roi_gt_bodyweight = tf.pad(roi_gt_bodyweight, [(0, N + P)])
     deltas = tf.pad(deltas, [(0, N + P), (0, 0)])
 
-    keypoint_lables = tf.pad(keypoint_lables, [(0, N + P), (0, 0)])
+    #keypoint_lables = tf.pad(keypoint_lables, [(0, N + P), (0, 0)])
     # keypoint_lables = tf.pad(keypoint_lables, [(0, N + P), (0, 0),(0,0)])
-    keypoint_weights = tf.pad(keypoint_weights, [(0, N + P), (0, 0)])
+    # keypoint_weights = tf.pad(keypoint_weights, [(0, N + P), (0, 0)])
     masks = tf.pad(masks, [(0, N + P), (0, 0), (0, 0)])
 
-    return rois, roi_gt_class_ids, deltas, keypoint_lables, keypoint_weights, masks
+    return rois, roi_gt_class_ids, deltas, roi_gt_bodyweight, masks
 
 
 
@@ -798,24 +799,17 @@ class DetectionKeypointTargetLayer(KE.Layer):
     gt_class_ids: [batch, MAX_GT_INSTANCES] Integer class IDs.
     gt_boxes: [batch, MAX_GT_INSTANCES, (y1, x1, y2, x2)] in normalized
               coordinates.
-    gt_keypoints: [batch, MAX_GT_INSTANCES, NUM_KEYPOINTS, 3]
-                (x, y, v)
+    gt_bodyweight: [batch, MAX_GT_INSTANCES] Float weight
     Returns: Target ROIs and corresponding class IDs, bounding box shifts,
-    keypoint_weights and keypoint_masks.
+    bodyweight.
     rois: [batch, TRAIN_ROIS_PER_IMAGE, (y1, x1, y2, x2)] in normalized
           coordinates
     target_class_ids: [batch, TRAIN_ROIS_PER_IMAGE]. Integer class IDs.
     target_deltas: [batch, TRAIN_ROIS_PER_IMAGE, NUM_CLASSES,
                     (dy, dx, log(dh), log(dw), class_id)]
                    Class-specific bbox refinements.
-    target_keypoints: [batch, TRAIN_ROIS_PER_IMAGE, NUM_KEYPOINTS)
-                 Keypoint labels cropped to bbox boundaries and resized to neural
-                 network output size. Maps keypoints from the half-open interval [x1, x2) on continuous image
-                coordinates to the closed interval [0, HEATMAP_SIZE - 1]
-
-    target_keypoint_weights: [batch, TRAIN_ROIS_PER_IMAGE, NUM_KEYPOINTS), bool type
-                 Keypoint_weights, 0: isn't visible, 1: visilble
-
+    target_bodyweight: [batch, TRAIN_ROIS_PER_IMAGE]
+    
     Note: Returned arrays might be zero padded if not enough target ROIs.
     """
 
@@ -827,14 +821,14 @@ class DetectionKeypointTargetLayer(KE.Layer):
         proposals = inputs[0]
         gt_class_ids = inputs[1]
         gt_boxes = inputs[2]
-        gt_keypoints = inputs[3]
+        gt_bodyweight = inputs[3]
         gt_masks = inputs[4]
 
         # Slice the batch and run a graph for each slice
         # TODO: Rename target_bbox to target_deltas for clarity
-        names = ["rois", "target_class_ids", "target_bbox", "target_keypoint","target_keypoint_weight","target_mask"]
+        names = ["rois", "target_class_ids", "target_bbox", "target_bodyweight","target_mask"]
         outputs = utils.batch_slice(
-            [proposals, gt_class_ids, gt_boxes, gt_keypoints, gt_masks],
+            [proposals, gt_class_ids, gt_boxes, gt_bodyweight, gt_masks],
             lambda r, x, y, z, m: detection_keypoint_targets_graph(
                 r, x, y, z, m,self.config),
             self.config.IMAGES_PER_GPU, names=names)
@@ -845,8 +839,7 @@ class DetectionKeypointTargetLayer(KE.Layer):
             (None, self.config.TRAIN_ROIS_PER_IMAGE, 4),  # rois
             (None, 1),  # class_ids
             (None, self.config.TRAIN_ROIS_PER_IMAGE, 4),  # deltas
-            (None, self.config.TRAIN_ROIS_PER_IMAGE,self.config.NUM_KEYPOINTS) , # keypoint_labels
-            (None, self.config.TRAIN_ROIS_PER_IMAGE,self.config.NUM_KEYPOINTS),  # keypoint_weights
+            (None, self.config.TRAIN_ROIS_PER_IMAGE) , # keypoint_labels
             (None, self.config.TRAIN_ROIS_PER_IMAGE, self.config.MASK_SHAPE[0],
              self.config.MASK_SHAPE[1])  # masks
         ]
@@ -1202,6 +1195,10 @@ def fpn_classifier_graph(rois, feature_maps,
     s = K.int_shape(x)
     mrcnn_bbox = KL.Reshape((s[1], num_classes, 4), name="mrcnn_bbox")(x)
 
+    # Bodyweight head
+    mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
+                                            name='mrcnn_bodyweight')(shared)
+
     # Keypoint visible head
     # x = KL.TimeDistributed(KL.Dense(num_keypoints * 2, activation='linear'), name='mask_class_fc')(shared)
     # s = K.int_shape(x)
@@ -1209,7 +1206,7 @@ def fpn_classifier_graph(rois, feature_maps,
     # mrcnn_keypoint_weight_probs = KL.TimeDistributed(KL.Activation("softmax"),
     #                                  name="mrcnn_keypoint_weight_probs")(mrcnn_keypoint_weight_logits)
 
-    return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox
+    return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox, mrcnn_bodyweight
 
 
 def build_fpn_mask_graph(rois, feature_maps,
@@ -1413,6 +1410,37 @@ def mrcnn_class_loss_graph(target_class_ids, pred_class_logits,
     loss = K.reshape(loss, [1, 1])
     return loss
 
+def mrcnn_bodyweight_loss_graph(target_bodyweight, active_class_ids, pred_bodyweight):
+    """Loss for the classifier head of Mask RCNN.
+
+    target_class_ids: [batch, num_rois]. Integer class IDs. Uses zero
+        padding to fill in the array.
+    pred_class_logits: [batch, num_rois, num_classes]
+    active_class_ids: [batch, num_classes]. Has a value of 1 for
+        classes that are in the dataset of the image, and 0
+        for classes that are not in the dataset.
+    """
+    #target_class_ids = tf.cast(target_class_ids, 'int64')
+    active_class_ids = K.reshape(active_class_ids, (-1,))
+    target_bodyweight = K.reshape(target_bodyweight, (-1,))
+    pred_bodyweight = K.reshape(pred_bodyweight, (-1, K.int_shape(pred_bodyweight)[2],))
+
+    # Only positive ROIs contribute to the loss. And only
+    # the right class_id of each ROI. Get their indicies.
+    positive_roi_ix = tf.where(active_class_ids > 0)[:, 0]
+    positive_roi_class_ids = tf.cast(
+        tf.gather(active_class_ids, positive_roi_ix), tf.int64)
+    indices = tf.stack([positive_roi_ix, positive_roi_class_ids], axis=1)
+    # Gather the deltas (predicted and true) that contribute to loss
+    target_bodyweight = tf.gather(target_bodyweight, positive_roi_ix)
+    pred_bodyweight = tf.gather_nd(pred_bodyweight, indices)
+    # Smooth-L1 Loss
+    loss = K.switch(tf.size(target_bodyweight) > 0,
+                    smooth_l1_loss(y_true=target_bodyweight, y_pred=pred_bodyweight),
+                    tf.constant(0.0))
+    loss = K.mean(loss)
+    loss = K.reshape(loss, [1, 1])
+    return loss
 
 def mrcnn_bbox_loss_graph(target_bbox, target_class_ids, pred_bbox):
     """Loss for Mask R-CNN bounding box refinement.
@@ -1732,8 +1760,9 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
     image = dataset.load_image(image_id)
     # mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
-    keypoints, mask, class_ids = dataset.load_keypoints(image_id)
-    assert (config.NUM_KEYPOINTS == keypoints.shape[1])
+    mask, weight, class_ids = dataset.load_mask(image_id)
+    #weight = dataset.load_weight(image_id)
+    #assert (config.NUM_KEYPOINTS == keypoints.shape[1])
 
     image, window, scale, padding = utils.resize_image(
         image,
@@ -1741,7 +1770,7 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
         max_dim=config.IMAGE_MAX_DIM,
         padding=config.IMAGE_PADDING)
     mask = utils.resize_mask(mask, scale, padding)
-    keypoints = utils.resize_keypoints(keypoints, image.shape[:2], scale, padding)
+    #keypoints = utils.resize_keypoints(keypoints, image.shape[:2], scale, padding)
 
     # Random horizontal flips.
 
@@ -1749,8 +1778,8 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-            keypoint_names,keypoint_flip_map = utils.get_keypoints()
-            keypoints = utils.flip_keypoints(keypoint_names,keypoint_flip_map,keypoints, image.shape[1])
+            #keypoint_names,keypoint_flip_map = utils.get_keypoints()
+            #keypoints = utils.flip_keypoints(keypoint_names,keypoint_flip_map,keypoints, image.shape[1])
 
     # Bounding boxes. Note that some boxes might be all zeros
     # if the corresponding mask got cropped out.
@@ -1779,7 +1808,7 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
 
-    return image, image_meta, class_ids, bbox, mask, keypoints
+    return image, image_meta, class_ids, bbox, mask, weight
 
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
@@ -2190,10 +2219,10 @@ def data_generator_keypoint(dataset, config, shuffle=True, augment=True, random_
             # Get GT bounding boxes and masks for image.
             image_id = image_ids[image_index]
             #image_meta:image_id,image_shape,windows.active_class_ids
-            image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_keypoints = \
+            image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_bodyweight = \
                 load_image_gt_keypoints(dataset, config, image_id, augment, use_mini_mask=config.USE_MINI_MASK)
 
-            Num_keypoint = np.shape(gt_keypoints)[1]
+            #Num_keypoint = np.shape(gt_keypoints)[1]
 
             # Skip images that have no instances. This can happen in cases
             # where we train on a subset of classes and the image doesn't
@@ -2233,7 +2262,8 @@ def data_generator_keypoint(dataset, config, shuffle=True, augment=True, random_
                 batch_gt_boxes = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
 
-                batch_gt_keypoints = np.zeros((batch_size, config.MAX_GT_INSTANCES, Num_keypoint,3))
+                batch_gt_bodyweights = np.zeros(
+                    (batch_size, config.MAX_GT_INSTANCES), dtype=np.float32)
 
                 if config.USE_MINI_MASK:
                     batch_gt_masks = np.zeros((batch_size, config.MINI_MASK_SHAPE[0], config.MINI_MASK_SHAPE[1],
@@ -2264,7 +2294,8 @@ def data_generator_keypoint(dataset, config, shuffle=True, augment=True, random_
                 gt_class_ids = gt_class_ids[ids]
                 gt_boxes = gt_boxes[ids]
                 gt_masks = gt_masks[:, :, ids]
-                gt_keypoints = gt_keypoints[ids,:]
+                gt_bodyweight = gt_bodyweight[ids]
+                #gt_keypoints = gt_keypoints[ids,:]
 
 
             # Add to batch
@@ -2275,7 +2306,8 @@ def data_generator_keypoint(dataset, config, shuffle=True, augment=True, random_
             batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
             batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
             batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
-            batch_gt_keypoints[b, :gt_keypoints.shape[0], :,:] = gt_keypoints
+            batch_gt_bodyweights[b, :gt_bodyweight.shape[0]] = gt_bodyweight
+            #batch_gt_keypoints[b, :gt_keypoints.shape[0], :,:] = gt_keypoints
             #Not implemented for keypoint_mask and no need here.
             if random_rois:
                 batch_rpn_rois[b] = rpn_rois
@@ -2292,7 +2324,7 @@ def data_generator_keypoint(dataset, config, shuffle=True, augment=True, random_
             #  input_gt_keypoint_weigths
             if b >= batch_size:
                 inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
-                          batch_gt_class_ids, batch_gt_boxes, batch_gt_keypoints,batch_gt_masks]
+                          batch_gt_class_ids, batch_gt_boxes, batch_gt_bodyweights, batch_gt_masks]
                 outputs = []
                 # Not implemented for keypoint_mask and no need here.
                 if random_rois:
@@ -2553,10 +2585,14 @@ class MaskRCNN():
             h, w = K.shape(input_image)[1], K.shape(input_image)[2]
             image_scale = K.cast(K.stack([h, w, h, w], axis=0), tf.float32)
             gt_boxes = KL.Lambda(lambda x: x / image_scale,name="gt_boxes")(input_gt_boxes)
-
-            keypoint_scale = K.cast(K.stack([w, h, 1], axis=0), tf.float32)
-            input_gt_keypoints = KL.Input(shape=[None, config.NUM_KEYPOINTS, 3])
-            gt_keypoints = KL.Lambda(lambda x: x / keypoint_scale, name="gt_keypoints")(input_gt_keypoints)
+            # 3. GT Body Weights of cuys
+            body_weight_scale = K.cast(K.stack([2000], axis=0), tf.float32)
+            input_gt_bodyweight = KL.Input(
+                shape=[None], name="input_weight", dtype=tf.float32)
+            gt_bodyweight = KL.Lambda(lambda x: x / body_weight_scale, name="gt_weight")(input_gt_bodyweight)
+            """ keypoint_scale = K.cast(K.stack([w, h, 1], axis=0), tf.float32) """
+            """ input_gt_keypoints = KL.Input(shape=[None, config.NUM_KEYPOINTS, 3]) """
+            """ gt_keypoints = KL.Lambda(lambda x: x / keypoint_scale, name="gt_keypoints")(input_gt_keypoints) """
             # 3. GT Masks (zero padded)
             # [batch, height, width, MAX_GT_INSTANCES]
             if config.USE_MINI_MASK:
@@ -2564,10 +2600,6 @@ class MaskRCNN():
                     shape=[config.MINI_MASK_SHAPE[0],
                            config.MINI_MASK_SHAPE[1], None],
                     name="input_gt_masks", dtype=bool)
-                # input_gt_keypoint_masks = KL.Input(
-                #     shape=[config.MINI_MASK_SHAPE[0],
-                #            config.MINI_MASK_SHAPE[1], None, config.NUM_KEYPOINTS],
-                #     name="input_gt_keypoint_masks", dtype=bool)
             else:
                 input_gt_masks = KL.Input(
                     shape=[config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1], None],
@@ -2676,13 +2708,13 @@ class MaskRCNN():
             # Subsamples proposals and generates target outputs for training
             # Note that proposal class IDs, gt_boxes, gt_keypoint_masks and gt_keypoint_weights are zero
             # padded. Equally, returned rois and targets are zero padded.
-            rois, target_class_ids, target_bbox, target_keypoint, target_keypoint_weight, target_mask = \
+            rois, target_class_ids, target_bbox, target_bodyweight, target_mask = \
                 DetectionKeypointTargetLayer(config, name="proposal_targets")\
-                    ([target_rois, input_gt_class_ids, gt_boxes, gt_keypoints, input_gt_masks])
+                    ([target_rois, input_gt_class_ids, gt_boxes, gt_bodyweight, input_gt_masks])
 
             # Network Heads
             # TODO: verify that this handles zero padded ROIs
-            mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight =\
                 fpn_classifier_graph(rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
@@ -2692,10 +2724,10 @@ class MaskRCNN():
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
 
-            keypoint_mrcnn_mask = build_fpn_keypoint_graph(rois, mrcnn_feature_maps,
-                                              config.IMAGE_SHAPE,
-                                              config.KEYPOINT_MASK_POOL_SIZE,
-                                              config.NUM_KEYPOINTS)
+            """ keypoint_mrcnn_mask = build_fpn_keypoint_graph(rois, mrcnn_feature_maps, """
+            """                                   config.IMAGE_SHAPE, """
+            """                                   config.KEYPOINT_MASK_POOL_SIZE, """
+            """                                   config.NUM_KEYPOINTS) """
 
             # TODO: clean up (use tf.identify if necessary)
             output_rois = KL.Lambda(lambda x: x * 1, name="output_rois")(rois)
@@ -2714,8 +2746,8 @@ class MaskRCNN():
             mask_loss = KL.Lambda(lambda x: mrcnn_mask_loss_graph(*x),
                                            name="mrcnn_mask_loss")(
                 [target_mask, target_class_ids, mrcnn_mask])
-            keypoint_loss = KL.Lambda(lambda x: keypoint_mrcnn_mask_loss_graph(*x, weight_loss=config.WEIGHT_LOSS), name="keypoint_mrcnn_mask_loss")(
-                [target_keypoint, target_keypoint_weight, target_class_ids, keypoint_mrcnn_mask])
+            bodyweight_loss = KL.Lambda(lambda x: mrcnn_bodyweight_loss_graph(*x), name="bodyweight_mrcnn_mask_loss")(
+                [target_bodyweight, target_class_ids ,mrcnn_bodyweight])
 
             # test_target_keypoint_mask = test_keypoint_mrcnn_mask_loss_graph(target_keypoint, target_keypoint_weight,
             #                                                        target_class_ids, keypoint_mrcnn_mask)
@@ -2729,22 +2761,22 @@ class MaskRCNN():
             # batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox, batch_gt_class_ids, \
             # batch_gt_boxes, batch_gt_keypoint, batch_gt_masks
             inputs = [input_image, input_image_meta,
-                      input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_keypoints, input_gt_masks]
+                      input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_bodyweight, input_gt_masks]
             if not config.USE_RPN_ROIS:
                 inputs.append(input_rois)
 
             # add "test_target_keypoint_mask" in the output for test the keypoint loss function
             outputs = [rpn_class_logits, rpn_class, rpn_bbox,
-                       mrcnn_class_logits, mrcnn_class, mrcnn_bbox, keypoint_mrcnn_mask,
+                       mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight,
                        rpn_rois, output_rois,
-                       rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, keypoint_loss, mask_loss]
+                       rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, bodyweight_loss, mask_loss]
                        # +  test_target_keypoint_mask for test the keypoint loss graph
 
-            model = KM.Model(inputs, outputs, name='mask_keypoint_mrcnn')
+            model = KM.Model(inputs, outputs, name='mask_bodyweight_mrcnn')
         else:
             # Network Heads
             # Proposal classifier and BBox regressor heads
-            mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight =\
                 fpn_classifier_graph(rpn_rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
@@ -2767,16 +2799,16 @@ class MaskRCNN():
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
-            keypoint_mrcnn = build_fpn_keypoint_graph(detection_boxes, mrcnn_feature_maps,
-                                                           config.IMAGE_SHAPE,
-                                                           config.KEYPOINT_MASK_POOL_SIZE,
-                                                           config.NUM_KEYPOINTS)
+            """ keypoint_mrcnn = build_fpn_keypoint_graph(detection_boxes, mrcnn_feature_maps, """
+            """                                                config.IMAGE_SHAPE, """
+            """                                                config.KEYPOINT_MASK_POOL_SIZE, """
+            """                                                config.NUM_KEYPOINTS) """
 
             #shape: Batch, N_ROI, Number_Keypoint, height*width
-            keypoint_mcrcnn_prob = KL.Activation("softmax", name="mrcnn_prob")(keypoint_mrcnn)
+            #keypoint_mcrcnn_prob = KL.Activation("softmax", name="mrcnn_prob")(keypoint_mrcnn)
             model = KM.Model([input_image, input_image_meta],
-                             [detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, keypoint_mcrcnn_prob],
-                             name='keypoint_mask_rcnn')
+                             [detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_bodyweight],
+                             name='bodyweight_mask_rcnn')
 
         # Add multi-GPU support.
         if config.GPU_COUNT > 1:
@@ -2874,7 +2906,7 @@ class MaskRCNN():
         self.keras_model._losses = []
         self.keras_model._per_input_losses = {}
         loss_names = ["rpn_class_loss", "rpn_bbox_loss",
-                      "mrcnn_class_loss", "mrcnn_bbox_loss", "keypoint_mrcnn_mask_loss", "mrcnn_mask_loss"]
+                      "mrcnn_class_loss", "mrcnn_bbox_loss", "bodyweight_mrcnn_mask_loss", "mrcnn_mask_loss"]
         for name in loss_names:
             layer = self.keras_model.get_layer(name)
             if layer.output in self.keras_model.losses:
