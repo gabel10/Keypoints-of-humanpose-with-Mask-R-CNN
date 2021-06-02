@@ -77,7 +77,7 @@ class CuyConfig(Config):
     IMAGE_MIN_DIM = 640
     IMAGE_MAX_DIM = 640
     TRAIN_ROIS_PER_IMAGE = 100
-    MASK_SHAPE = [112, 112]
+    MASK_SHAPE = [56, 56]
     DETECTION_MAX_INSTANCES = 10
     BACKBONE = "resnet50"
 
