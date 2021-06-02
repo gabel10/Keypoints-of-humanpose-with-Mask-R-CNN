@@ -77,11 +77,9 @@ class CuyConfig(Config):
     IMAGE_MIN_DIM = 640
     IMAGE_MAX_DIM = 640
     TRAIN_ROIS_PER_IMAGE = 100
-    #MINI_MASK_SHAPE = (112, 112)
-    MASK_SHAPE = [28, 28]
-    DETECTION_MAX_INSTANCES = 20
+    MASK_SHAPE = [112, 112]
+    DETECTION_MAX_INSTANCES = 10
     BACKBONE = "resnet50"
-    #FILE_WEIGHTS_CUY = ""
 
 ############################################################
 #  Dataset
@@ -92,17 +90,17 @@ class CuyDataset(utils.Dataset):
     def load_dataset(self, dataset_dir,subset, weightsFile):
         """Load a subset of the Cuy dataset.
         dataset_dir: Root directory of the dataset.
+        subset: Sub directory of the dataset
         """
         # Add classes. We have only one class to add.
         self.add_class("dataset", 1, "cuy")
 
-        # File with cuy weights
+        # File with cuy body weights
         weights_labels = np.loadtxt(weightsFile, str)
 
         # Train or validation dataset?
         assert subset in ["train", "val"]
         dataset_dir = os.path.join(dataset_dir, subset)
-
 
         for i, filename in enumerate(os.listdir(dataset_dir)):
             if '.jpg' in filename:
@@ -117,10 +115,11 @@ class CuyDataset(utils.Dataset):
 
 
     def load_mask(self, image_id):
-        """Generate instance masks for an image.
+        """Generate instance masks and weights for an image.
        Returns:
         masks: A bool array of shape [height, width, instance count] with
             one mask per instance.
+        weight: A 1D array of body weights of the instance masks.
         class_ids: a 1D array of class IDs of the instance masks.
         """
         # If not a cuy dataset image, delegate to parent class.
@@ -138,15 +137,6 @@ class CuyDataset(utils.Dataset):
         weight.append(info['weight'])
         weight = np.stack(weight, axis=-1)
         return mask, weight, np.ones([mask.shape[-1]], dtype=np.int32)
-    
-    """ def load_weight(self, image_id): """
-    """     Generate instance weight for an image """
-    """     Returns: weight of the cuy """
-    """     """ 
-    """     info = self.image_info[image_id] """
-    """     weight = [] """
-    """     weight.append(info[weight]) """
-    """     return weight """
 
     def image_reference(self, image_id):
         """Return the path of the image."""
@@ -155,10 +145,6 @@ class CuyDataset(utils.Dataset):
             return info["path"]
         else:
             super(self.__class__, self).image_reference(image_id)
-    
-    def load_weight(selft, image_id):
-        "Return the weight of the image"
-
 
 def train(model):
     """Train the model."""
@@ -312,17 +298,16 @@ if __name__ == '__main__':
             GPU_COUNT = 1
             IMAGES_PER_GPU = 1
         config = InferenceConfig()
-    #config.display()
+    config.display()
 
     # Create model
     if args.command == "train":
         model = modellib.MaskRCNN(mode="training", config=config,
                                   model_dir=args.logs)
-        #print('Modelo creado')
     else:
         model = modellib.MaskRCNN(mode="inference", config=config,
                                   model_dir=args.logs)
-    print('Modelo construido')
+
     # Select weights file to load
     if args.weights.lower() == "coco":
         weights_path = COCO_WEIGHTS_PATH
@@ -349,7 +334,6 @@ if __name__ == '__main__':
     else:
         model.load_weights(weights_path, by_name=True)
 
-    print('Modelo con pesos cargados')
     # Train or evaluate
     if args.command == "train":
         train(model)
