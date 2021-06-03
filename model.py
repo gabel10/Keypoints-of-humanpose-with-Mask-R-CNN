@@ -3090,13 +3090,13 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def unmold_keypoint_detections(self, detections, mrcnn_keypoints, image_shape, window, mrcnn_mask, keypoint_threshold = 0.05):
+    def unmold_keypoint_detections(self, detections, mrcnn_bodyweight, image_shape, window, mrcnn_mask):
         """Reformats the detections of one image from the format of the neural
         network output to a format suitable for use in the rest of the
         application.
 
         detections: [N, (y1, x1, y2, x2, class_id, score)]
-        mrcnn_keypoints: [N, num_keypoints, height*width]
+        mrcnn_keypoints: [N]
         image_shape: [height, width, depth] Original size of the image before resizing
         window: [y1, x1, y2, x2] Box in the image where the real image is
                 excluding the padding.
@@ -3118,7 +3118,7 @@ class MaskRCNN():
         class_ids = detections[:N, 4].astype(np.int32)
         scores = detections[:N, 5]
         masks = mrcnn_mask[np.arange(N), :, :, class_ids]
-        mrcnn_keypoints = mrcnn_keypoints[:N, :, :]
+        bodyweights = mrcnn_bodyweight[:N]
 
         # Compute scale and shift to translate coordinates to image domain.
         h_scale = image_shape[0] / (window[2] - window[0])
@@ -3142,27 +3142,23 @@ class MaskRCNN():
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)
             scores = np.delete(scores, exclude_ix, axis=0)
-            mrcnn_keypoints = np.delete(mrcnn_keypoints, exclude_ix, axis=0)
+            bodyweights = np.delete(bodyweights, exclude_ix, axis=0)
             masks = np.delete(masks, exclude_ix, axis=0)
             N = class_ids.shape[0]
 
         # Resize masks to original image size and set boundary threshold.
 
-        keypoints = []
+        #keypoints = []
         full_masks = []
         for i in range(N):
             # Convert neural network mask to full size mask
-            keypoint, full_mask = utils.unmold_keypoint_mask(mrcnn_keypoints[i], boxes[i], image_shape,masks[i],keypoint_threshold=keypoint_threshold)
-
-            keypoints.append(keypoint)
+            full_mask = utils.unmold_mask(masks[i], boxes[i], image_shape)
             full_masks.append(full_mask)
-
-        keypoints = np.stack(keypoints,axis=0) if keypoints else np.empty((0,) + (mrcnn_keypoints.shape[1], 3))
-        full_masks = np.stack(full_masks, axis=-1) \
+        full_masks = np.stack(full_masks, axis=-1)\
             if full_masks else np.empty((0,) + masks.shape[1:3])
 
+        return boxes, class_ids, scores, bodyweights, full_masks
 
-        return boxes, class_ids, scores, keypoints, full_masks
 
     def detect(self, images, verbose=0):
         """Runs the detection pipeline.
@@ -3234,7 +3230,7 @@ class MaskRCNN():
         # Run human pose detection
         #[detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, keypoint_mcrcnn_prob]
         detections, mrcnn_class, mrcnn_bbox, \
-            rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_keypoint_prob =\
+            rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_bodyweight =\
             self.keras_model.predict([molded_images, image_metas], verbose=0)
         if verbose:
             log("rpn_class", rpn_class)
@@ -3248,21 +3244,22 @@ class MaskRCNN():
             # 100
             log("detections", detections)
             log("mrcnn_mask", mrcnn_mask)
-            log("mrcnn_keypoint_prob", mrcnn_keypoint_prob)
+            log("mrcnn_bodyweight", mrcnn_bodyweight)
         # Process detections
         results = []
         for i, image in enumerate(images):
-            final_rois, final_class_ids, final_scores, final_keypoints,final_masks=\
-                self.unmold_keypoint_detections(detections[i], mrcnn_keypoint_prob[i],
-                                       image.shape, windows[i],mrcnn_mask[i],keypoint_threshold = self.config.KEYPOINT_THRESHOLD)
+            final_rois, final_class_ids, final_scores, final_bodyweight,final_masks=\
+                self.unmold_keypoint_detections(detections[i], mrcnn_bodyweight[i],
+                                       image.shape, windows[i],mrcnn_mask[i])
             results.append({
                 "rois": final_rois,
                 "class_ids": final_class_ids,
                 "scores": final_scores,
-                "keypoints": final_keypoints,
+                "bodyweight": final_bodyweight,
                 "masks": final_masks
             })
         return results
+        
     def ancestor(self, tensor, name, checked=None):
         """Finds the ancestor of a TF tensor in the computation graph.
         tensor: TensorFlow symbolic tensor.

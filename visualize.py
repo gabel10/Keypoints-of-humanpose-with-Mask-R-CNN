@@ -154,6 +154,81 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
     plt.show()
+
+def display_instances_bw(image, boxes, masks, bodyweight,class_ids, class_names,
+                      scores=None, title="",
+                      figsize=(16, 16), ax=None):
+    """
+    boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    masks: [height, width, num_instances]
+    class_ids: [num_instances]
+    class_names: list of class names of the dataset
+    scores: (optional) confidence scores for each box
+    figsize: (optional) the size of the image.
+    """
+    # Number of instances
+    N = boxes.shape[0]
+    log(class_ids.shape[0])
+    if not N:
+        print("\n*** No instances to display *** \n")
+    else:
+        assert boxes.shape[0] == bodyweight.shape[0] == class_ids.shape[0]
+
+    if not ax:
+        _, ax = plt.subplots(1, figsize=figsize)
+
+    # Generate random colors
+    colors = random_colors(N)
+
+    # Show area outside image boundaries.
+    height, width = image.shape[:2]
+    ax.set_ylim(height + 10, -10)
+    ax.set_xlim(-10, width + 10)
+    ax.axis('off')
+    ax.set_title(title)
+
+    masked_image = image.astype(np.uint32).copy()
+    for i in range(N):
+        color = colors[i]
+
+        # Bounding box
+        if not np.any(boxes[i]):
+            # Skip this instance. Has no bbox. Likely lost in image cropping.
+            continue
+        y1, x1, y2, x2 = boxes[i]
+        p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
+                              alpha=0.7, linestyle="dashed",
+                              edgecolor=color, facecolor='none')
+        ax.add_patch(p)
+
+        # Label
+        class_id = class_ids[i]
+        score = scores[i] if scores is not None else None
+        label = class_names[class_id]
+        bw = bodyweight[i]
+        # x = random.randint(x1, (x1 + x2) // 2)
+        caption = "{} {:.3f}".format(label, score) if score else label
+        ax.text(x1, y1 + 8, caption,
+                color='w', size=11, backgroundcolor="none")
+
+        # Mask
+        mask = masks[:, :, i]
+        masked_image = apply_mask(masked_image, mask, color)
+
+        # Mask Polygon
+        # Pad to ensure proper polygons for masks that touch image edges.
+        padded_mask = np.zeros(
+            (mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
+        padded_mask[1:-1, 1:-1] = mask
+        contours = find_contours(padded_mask, 0.5)
+        for verts in contours:
+            # Subtract the padding and flip (y, x) to (x, y)
+            verts = np.fliplr(verts) - 1
+            p = Polygon(verts, facecolor="none", edgecolor=color)
+            ax.add_patch(p)
+    ax.imshow(masked_image.astype(np.uint8))
+    plt.show()
+
 def display_image_keypoint_mask(image, boxes, keypoints, keypoint_weight, class_ids, class_names, config, iskeypointlabel=True):
     """
        keypoints: [num_instance, num_keypoints] Every value is a int label which indicates the position ([0,56*56)) of the joint
@@ -220,69 +295,9 @@ def display_image_keypoint_mask(image, boxes, keypoints, keypoint_weight, class_
         box_scales = np.array([image.shape[0], image.shape[1], image.shape[0], image.shape[1]])
         box_scales = np.reshape(box_scales, (1, -1))
         boxes = np.array(boxes * box_scales)
-
-
-
     display_keypoints(image, boxes, keypoints, class_ids, class_names)
 
-
-
-
-
-    # num_keypoint = np.shape(keypoint_weight)[-1]
-    # image_shape = np.shape(image)
-    # if(not keypoint_last):
-    #     keypoint_mask = np.transpose(keypoint_mask, [1, 2, 0, 3])
-    #     box_scales = np.array([image_shape[0],image_shape[1],image_shape[0],image_shape[1]])
-    #     box_scales = np.reshape(box_scales,(1,-1))
-    #     boxes = np.array(boxes*box_scales).astype(np.int32)
-    #     # print(boxes)
-    #
-    #
-    # class_ids = class_ids[non_zeros]
-    # print("none_zeros:",np.shape(non_zeros),"boxes",np.shape(boxes))
-    # print("keypoint_mask:",np.shape(keypoint_mask))
-    # print("keypoint_weight:", np.shape(keypoint_weight))
-    # print("class_ids:", np.shape(class_ids))
-    # num_person = np.shape(class_ids)[0]
-    #
-    # # if(not keypoint_last):
-    # #     keypoint_mask = utils.expand_keypoint_mask(boxes, keypoint_mask, image_shape)
-    #
-    #
-    # if (use_mini_mask):
-    #     # repeat_boxes = np.repeat(boxes,num_keypoint,axis=0)
-    #     keypoint_mask = utils.expand_keypoint_mask(boxes, keypoint_mask, image_shape)
-    #
-    #
-    # mask_shape = np.shape(keypoint_mask)
-    # mask_height = mask_shape[0]
-    # mask_width = mask_shape[1]
-    # # keypoint_mask = np.reshape(keypoint_mask,[mask_height,mask_width,num_person,-1])
-    #
-    # keypoints = np.zeros([num_person,num_keypoint,3],dtype=np.int32)
-    #
-    # keypoint_mask = np.array(keypoint_mask).astype(float)
-    # for i in range(num_person):
-    #     for j in range(num_keypoint):
-    #         result = np.sum(keypoint_mask[:, :, i,j])
-    #         if(result == 0):
-    #             # print("No joint:",i,j)
-    #             keypoints[i, j, :2] = [0,0]
-    #         else:
-    #             cordys, cordxs = np.where(keypoint_mask[:, :, i,j] == np.max(keypoint_mask[:, :, i,j]))
-    #             # print("cordys_shape,cordxs_shape",np.shape(cordys),np.shape(cordxs))
-    #             final_y = np.mean(cordys).astype(int)
-    #             final_x = np.mean(cordxs).astype(int)
-    #             keypoints[i,j,:2] = [final_x,final_y]
-    #         keypoints[i,j,2] = keypoint_weight[i,j]
-    #
-
-
-
-
-
-def display_keypoints(image, boxes, keypoints, class_ids, class_names,
+def display_bodyweight(image, boxes, bodyweight, class_ids, class_names,
                       skeleton = [], scores=None, title="",
                       figsize=(16, 16), ax=None):
     """
@@ -295,12 +310,12 @@ def display_keypoints(image, boxes, keypoints, class_ids, class_names,
     """
     # Number of persons
     N = boxes.shape[0]
-    keypoints = np.array(keypoints).astype(int)
-    print("keypoint_shape:", np.shape(keypoints))
+    #keypoints = np.array(keypoints).astype(int)
+    print("keypoint_shape:", np.shape(bodyweight))
     if not N:
         print("\n*** No persons to display *** \n")
     else:
-        assert boxes.shape[0] == keypoints.shape[0] == class_ids.shape[0]
+        assert boxes.shape[0] == bodyweight.shape[0] == class_ids.shape[0]
 
     if not ax:
         _, ax = plt.subplots(1, figsize=figsize)
@@ -337,43 +352,38 @@ def display_keypoints(image, boxes, keypoints, class_ids, class_names,
         ax.text(x1, y1 + 8, caption,
                 color='w', size=11, backgroundcolor="none")
         # Keypoints: num_person, num_keypoint, 3
-        for Joint in keypoints[i]:
-            if(Joint[2]!=0):
-                circle = patches.Circle((Joint[0],Joint[1]),radius=1,edgecolor=color,facecolor='none')
-                ax.add_patch(circle)
+        #for Joint in keypoints[i]:
+        #    if(Joint[2]!=0):
+        #        circle = patches.Circle((Joint[0],Joint[1]),radius=1,edgecolor=color,facecolor='none')
+        #        ax.add_patch(circle)
 
         # Skeleton: 11*2
-        limb_colors = [[0, 0, 255], [0, 170, 255], [0, 255, 170], [0, 255, 0], [170, 255, 0],
-                  [255, 170, 0], [255, 0, 0], [255, 0, 170], [170, 0, 255], [170,170,0],[170,0,170]]
-        if(len(skeleton)):
-            skeleton = np.reshape(skeleton,(-1,2))
-            neck = np.array((keypoints[i, 5, :] + keypoints[i,6,:])/2).astype(int)
-            if(keypoints[i, 5, 2] == 0 or keypoints[i,6,2] == 0):
-                neck = [0,0,0]
-            limb_index = -1
-            for limb in skeleton:
-                limb_index += 1
-                start_index, end_index = limb  # connection joint index from 0 to 16
-                if(start_index == -1):
-                    Joint_start = neck
-                else:
-                    Joint_start = keypoints[i][start_index]
-                if(end_index == -1):
-                    Joint_end = neck
-                else:
-                    Joint_end = keypoints[i][end_index]
-                # both are Annotated
-                # Joint:(x,y,v)
-                if ((Joint_start[2] != 0) & (Joint_end[2] != 0)):
-                    # print(color)
-                    cv2.line(skeleton_image, tuple(Joint_start[:2]), tuple(Joint_end[:2]), limb_colors[limb_index],5)
-    ax.imshow(skeleton_image.astype(np.uint8))
+        #limb_colors = [[0, 0, 255], [0, 170, 255], [0, 255, 170], [0, 255, 0], [170, 255, 0],
+        #          [255, 170, 0], [255, 0, 0], [255, 0, 170], [170, 0, 255], [170,170,0],[170,0,170]]
+        """ if(len(skeleton)): """
+        """     skeleton = np.reshape(skeleton,(-1,2)) """
+        """     neck = np.array((keypoints[i, 5, :] + keypoints[i,6,:])/2).astype(int) """
+        """     if(keypoints[i, 5, 2] == 0 or keypoints[i,6,2] == 0): """
+        """         neck = [0,0,0] """
+        """     limb_index = -1 """
+        """     for limb in skeleton: """
+        """         limb_index += 1 """
+        """         start_index, end_index = limb  # connection joint index from 0 to 16 """
+        """         if(start_index == -1): """
+        """             Joint_start = neck """
+        """         else: """
+        """             Joint_start = keypoints[i][start_index] """
+        """         if(end_index == -1): """
+        """             Joint_end = neck """
+        """         else: """
+        """             Joint_end = keypoints[i][end_index] """
+        """         # both are Annotated """
+        """         # Joint:(x,y,v) """
+        """         if ((Joint_start[2] != 0) & (Joint_end[2] != 0)): """
+        """             # print(color) """
+        """             cv2.line(skeleton_image, tuple(Joint_start[:2]), tuple(Joint_end[:2]), limb_colors[limb_index],5) """
+    #ax.imshow(skeleton_image.astype(np.uint8))
     plt.show()
-
-
-
-
-
     
 
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):

@@ -113,6 +113,22 @@ class CuyDataset(utils.Dataset):
                                 path=os.path.join(dataset_dir, filename),
                                 weight=weight)
 
+    def load_dataset_test(self, dataset_dir,subset):
+        """Load a subset of the Cuy dataset.
+        dataset_dir: Root directory of the dataset.
+        subset: Sub directory of the dataset
+        """
+        # Add classes. We have only one class to add.
+        self.add_class("dataset", 1, "cuy")
+        # Train or validation dataset?
+        assert subset in ["train", "val"]
+        dataset_dir = os.path.join(dataset_dir, subset)
+        for i, filename in enumerate(os.listdir(dataset_dir)):
+            if '.jpg' in filename:
+                image_id = filename[:-4]
+                self.add_image( 'dataset', 
+                            image_id=image_id,
+                            path=os.path.join(dataset_dir, filename))
 
     def load_mask(self, image_id):
         """Generate instance masks and weights for an image.
