@@ -25,7 +25,6 @@ Usage: import the module (see Jupyter notebooks for examples), or run from
 
 import os
 import sys
-import json
 import datetime
 import numpy as np
 import skimage.draw
@@ -77,6 +76,7 @@ class CuyConfig(Config):
     IMAGE_MIN_DIM = 640
     IMAGE_MAX_DIM = 640
     TRAIN_ROIS_PER_IMAGE = 100
+    MINI_MASK_SHAPE = [112,112]
     MASK_SHAPE = [56, 56]
     DETECTION_MAX_INSTANCES = 10
     BACKBONE = "resnet50"
