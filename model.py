@@ -1124,8 +1124,9 @@ def fpn_classifier_graph(rois, feature_maps,
     mrcnn_bbox = KL.Reshape((s[1], num_classes, 4), name="mrcnn_bbox")(x)
 
     # Bodyweight head
+    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_dense_bw')(shared)
     mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
-                                            name='mrcnn_bodyweight')(shared)
+                                            name='mrcnn_bodyweight')(x)
 
     return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox, mrcnn_bodyweight
 
