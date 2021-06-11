@@ -1361,9 +1361,9 @@ def mrcnn_bodyweight_loss_graph(target_bodyweight, active_class_ids, pred_bodywe
     """ loss = K.switch(tf.size(target_bodyweight) > 0, """
     """                 smooth_l1_loss(y_true=target_bodyweight, y_pred=pred_bodyweight), """
     """                 tf.constant(0.0)) """
-    loss = K.switch(tf.size(target_bodyweight > 0,
+    loss = K.switch(tf.size(target_bodyweight) > 0,
                        tf.keras.losses.mean_squared_error(target_bodyweight, pred_bodyweight),
-                       tf.constant(0.0)))
+                       tf.constant(0.0))
     loss = K.mean(loss)
     loss = K.reshape(loss, [1, 1])
     return loss
@@ -1725,6 +1725,7 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
     active_class_ids[source_class_ids] = 1
 
     # Resize masks to smaller size to reduce memory usage
+    #print(mask.shape)
     if use_mini_mask:
         mask = utils.minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
 
