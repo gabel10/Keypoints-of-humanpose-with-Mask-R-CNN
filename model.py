@@ -3134,7 +3134,7 @@ class MaskRCNN():
         # stages of training when the network weights are still a bit random.
         exclude_ix = np.where(
             (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
-        bodyweights = np.multiply(bodyweights, 5000)
+        bodyweights = np.multiply(bodyweights, 4000)
         if exclude_ix.shape[0] > 0:
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)
