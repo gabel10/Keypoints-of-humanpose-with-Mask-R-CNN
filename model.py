@@ -1239,12 +1239,12 @@ def fpn_classifier_graph(rois, feature_maps,
     mrcnn_bbox = KL.Reshape((s[1], num_classes, 4), name="mrcnn_bbox")(x)
 
     # Bodyweight head
-    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_dense_bw')(shared)
-    mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
-                                            name='mrcnn_bodyweight')(x)
+    #x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_dense_bw')(shared)
+    #mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
+    #                                        name='mrcnn_bodyweight')(x)
 
-    return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox, mrcnn_bodyweight
-
+    #return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox, mrcnn_bodyweight
+    return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox
 
 def build_fpn_mask_graph(rois, feature_maps,
                          image_shape, pool_size, num_classes):
@@ -1300,6 +1300,57 @@ def build_fpn_mask_graph(rois, feature_maps,
     x = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
                            name="mrcnn_mask")(x)
     return x
+
+def build_fpn_bodyweight_graph(rois, feature_maps,
+                         image_shape, pool_size, num_classes):
+    """Builds the computation graph of the mask head of Feature Pyramid Network.
+
+    rois: [batch, num_rois, (y1, x1, y2, x2)] Proposal boxes in normalized
+          coordinates.
+    feature_maps: List of feature maps from diffent layers of the pyramid,
+                  [P2, P3, P4, P5]. Each has a different resolution.
+    image_shape: [height, width, depth]
+    pool_size: The width of the square feature map generated from ROI Pooling.
+    num_classes: number of classes, which determines the depth of the results
+                For keypoint_mask, it's num_keypoints
+
+    Returns: Masks [batch, roi_count, height, width, num_classes]
+    """
+    # ROI Pooling
+    # Shape: [batch, num_rois, pool_height, pool_width, channels]
+    x = PyramidROIAlign([pool_size, pool_size], image_shape,
+                        name="roi_align_mask")([rois] + feature_maps)
+
+    # Conv layers
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                           name="mrcnn_bw_conv1")(x)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                           name='mrcnn_bw_bn1')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                           name="mrcnn_bw_conv2")(x)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                           name='mrcnn_bw_bn2')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                           name="mrcnn_bw_conv3")(x)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                           name='mrcnn_bw_bn3')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                           name="mrcnn_bw_conv4")(x)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                           name='mrcnn_bw_bn4')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense1')(x)
+    mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
+                                            name='mrcnn_bodyweight')(x)
+    
+    return mrcnn_bodyweight
 
 """ def build_fpn_keypoint_graph(rois, feature_maps, """
 """                          image_shape, pool_size, num_keypoints): """
@@ -2746,12 +2797,20 @@ class MaskRCNN():
 
             # Network Heads
             # TODO: verify that this handles zero padded ROIs
-            mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight =\
+            """mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight =\
+                fpn_classifier_graph(rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
+                                     config.POOL_SIZE, config.NUM_CLASSES)"""
+
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
                 fpn_classifier_graph(rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
-
             mrcnn_mask = build_fpn_mask_graph(rois, mrcnn_feature_maps,
+                                              config.IMAGE_SHAPE,
+                                              config.MASK_POOL_SIZE,
+                                              config.NUM_CLASSES)
+
+            mrcnn_bodyweight = build_fpn_bodyweight_graph(rois, mrcnn_feature_maps,
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
@@ -2778,7 +2837,7 @@ class MaskRCNN():
                                            name="mrcnn_mask_loss")(
                 [target_mask, target_class_ids, mrcnn_mask])
             bodyweight_loss = KL.Lambda(lambda x: mrcnn_bodyweight_loss_graph(*x), name="bodyweight_mrcnn_mask_loss")(
-                [target_bodyweight, target_class_ids ,mrcnn_bodyweight])
+                [target_bodyweight, target_class_ids, mrcnn_bodyweight])
 
             # Model generated
             # batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox, batch_gt_class_ids, \
@@ -3071,7 +3130,7 @@ class MaskRCNN():
             keras.callbacks.TensorBoard(log_dir=self.log_dir,
                                         histogram_freq=0, write_graph=True, write_images=False),
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
-                                            verbose=0, save_weights_only=True),
+                                            verbose=0, save_weights_only=True, save_best_only=True),
         ]
 
         # Train

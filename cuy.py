@@ -66,6 +66,7 @@ class CuyConfig(Config):
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # Background + cuy
 
+    EPOCHS = 30
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 100
 
@@ -181,7 +182,7 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=30,
+                epochs=config.EPOCHS,
                 layers='heads')
 
 
