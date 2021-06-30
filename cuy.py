@@ -106,7 +106,7 @@ class CuyDataset(utils.Dataset):
         for i, filename in enumerate(os.listdir(dataset_dir)):
             if '.jpg' in filename:
                 image_id = filename[:-4]
-                weight_index = np.where(weights_labels == filename.upper())
+                weight_index = np.where(weights_labels == filename)
                 weight_data = weights_labels[weight_index[0][0]]
                 weight = float(weight_data[1])
                 self.add_image( 'dataset', 

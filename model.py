@@ -1319,7 +1319,7 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
     # ROI Pooling
     # Shape: [batch, num_rois, pool_height, pool_width, channels]
     x = PyramidROIAlign([pool_size, pool_size], image_shape,
-                        name="roi_align_mask")([rois] + feature_maps)
+                        name="roi_align_bw")([rois] + feature_maps)
 
     # Conv layers
     x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
