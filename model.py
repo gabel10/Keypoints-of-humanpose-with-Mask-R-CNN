@@ -961,7 +961,7 @@ def refine_detections_graph(rois, probs, deltas, window, config):
     detections = tf.reshape(detections,[config.DETECTION_MAX_INSTANCES,6])
     return detections
 
-def refine_detections_bw_graph(rois, probs, deltas, window, bodyweights,config):
+def refine_detections_bw_graph(rois, probs, deltas, window,config):
     """Refine classified proposals and filter overlaps and return final
     detections.
 
@@ -985,7 +985,7 @@ def refine_detections_bw_graph(rois, probs, deltas, window, bodyweights,config):
     class_scores = tf.gather_nd(probs, indices)
     # Class-specific bounding box deltas
     deltas_specific = tf.gather_nd(deltas, indices)
-    bodyweight_scores = tf.gather_nd(bodyweights, indices)*tf.constant([4000.0])
+    #bodyweight_scores = tf.gather_nd(bodyweights, indices)*tf.constant([4000.0])
 
     # Apply bounding box deltas
     # Shape: [boxes, (y1, x1, y2, x2)] in normalized coordinates
@@ -1016,7 +1016,7 @@ def refine_detections_bw_graph(rois, probs, deltas, window, bodyweights,config):
     pre_nms_class_ids = tf.gather(class_ids, keep)
     pre_nms_scores = tf.gather(class_scores, keep)
     pre_nms_rois = tf.gather(refined_rois,   keep)
-    pre_nms_bodyweight = tf.gather(bodyweight_scores, keep)
+    #pre_nms_bodyweight = tf.gather(bodyweight_scores, keep)
     # pre_nms_keypoint_weights = tf.gather(keypoint_weights, keep)
     unique_pre_nms_class_ids = tf.unique(pre_nms_class_ids)[0]
 
@@ -1063,7 +1063,7 @@ def refine_detections_bw_graph(rois, probs, deltas, window, bodyweights,config):
         tf.to_float(tf.gather(refined_rois, keep)),
         tf.to_float(tf.gather(class_ids, keep))[..., tf.newaxis],
         tf.gather(class_scores, keep)[..., tf.newaxis],
-        tf.gather(bodyweight_scores, keep)[..., tf.newaxis]
+        #tf.gather(bodyweight_scores, keep)[..., tf.newaxis]
         ], axis=1)
 
 
@@ -1071,7 +1071,7 @@ def refine_detections_bw_graph(rois, probs, deltas, window, bodyweights,config):
     gap = config.DETECTION_MAX_INSTANCES - tf.shape(detections)[0]
     detections = tf.pad(detections, [(0, gap), (0, 0)], "CONSTANT")
 
-    detections = tf.reshape(detections,[config.DETECTION_MAX_INSTANCES,7])
+    detections = tf.reshape(detections,[config.DETECTION_MAX_INSTANCES,6])
     return detections
 
 
@@ -1097,13 +1097,13 @@ class DetectionLayer(KE.Layer):
         mrcnn_class = inputs[1]
         mrcnn_bbox = inputs[2]
         image_meta = inputs[3]
-        mrcnn_bw = inputs[4]
+        #mrcnn_bw = inputs[4]
 
         # Run detection refinement graph on each item in the batch
         _, _, window, _ = parse_image_meta_graph(image_meta)
         outputs = utils.batch_slice(
-            [rois, mrcnn_class, mrcnn_bbox, window, mrcnn_bw],
-            lambda x, y, w, z, b: refine_detections_bw_graph(x, y,  w, z, b, self.config),
+            [rois, mrcnn_class, mrcnn_bbox, window],
+            lambda x, y, w, z: refine_detections_bw_graph(x, y,  w, z, self.config),
             self.config.IMAGES_PER_GPU)
 
         # Reshape output
@@ -1188,7 +1188,7 @@ def build_rpn_model(anchor_stride, anchors_per_location, depth):
 ############################################################
 
 def fpn_classifier_graph(rois, feature_maps,
-                         image_shape, pool_size, num_classes,num_keypoints = 17):
+                         image_shape, pool_size, num_classes):
     """Builds the computation graph of the feature pyramid network classifier
     and regressor heads.
 
@@ -2857,7 +2857,7 @@ class MaskRCNN():
         else:
             # Network Heads
             # Proposal classifier and BBox regressor heads
-            mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight =\
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox=\
                 fpn_classifier_graph(rpn_rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
@@ -2866,7 +2866,7 @@ class MaskRCNN():
             #   detections: [batch, num_detections, (y1, x1, y2, x2, class_id, score)] in image coordinates
             #   keypoint_weights: [batch, num_detections, num_keypoints]
             detections = DetectionLayer(config, name="mrcnn_detection")(
-                [rpn_rois, mrcnn_class, mrcnn_bbox,input_image_meta, mrcnn_bodyweight])
+                [rpn_rois, mrcnn_class, mrcnn_bbox,input_image_meta])
 
             # Convert boxes to normalized coordinates
             # TODO: let DetectionLayer return normalized coordinates to avoid
@@ -2880,6 +2880,11 @@ class MaskRCNN():
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
+
+            mrcnn_bodyweight = build_fpn_bodyweight_graph(detection_boxes, mrcnn_feature_maps,
+                                  config.IMAGE_SHAPE,
+                                  config.MASK_POOL_SIZE,
+                                  config.NUM_CLASSES)
             """ keypoint_mrcnn = build_fpn_keypoint_graph(detection_boxes, mrcnn_feature_maps, """
             """                                                config.IMAGE_SHAPE, """
             """                                                config.KEYPOINT_MASK_POOL_SIZE, """
