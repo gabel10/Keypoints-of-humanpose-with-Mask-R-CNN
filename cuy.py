@@ -66,7 +66,7 @@ class CuyConfig(Config):
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # Background + cuy
 
-    EPOCHS = 30
+    EPOCHS = 10
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 100
 

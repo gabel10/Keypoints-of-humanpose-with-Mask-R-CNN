@@ -1062,7 +1062,7 @@ def refine_detections_bw_graph(rois, probs, deltas, window,config):
     detections = tf.concat([
         tf.to_float(tf.gather(refined_rois, keep)),
         tf.to_float(tf.gather(class_ids, keep))[..., tf.newaxis],
-        tf.gather(class_scores, keep)[..., tf.newaxis],
+        tf.gather(class_scores, keep)[..., tf.newaxis]
         #tf.gather(bodyweight_scores, keep)[..., tf.newaxis]
         ], axis=1)
 
@@ -1295,8 +1295,6 @@ def build_fpn_mask_graph(rois, feature_maps,
                            name="mrcnn_mask_deconv1")(x)
     x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
                        name="mrcnn_mask_deconv2")(x)
-    """  x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), """
-    """                  name="mrcnn_mask_deconv3")(x) """
     x = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
                            name="mrcnn_mask")(x)
     return x
@@ -1345,7 +1343,7 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_bw_bn4')(x)
     x = KL.Activation('relu')(x)
-
+    x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')
     x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense1')(x)
     mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
                                             name='mrcnn_bodyweight')(x)
@@ -2857,7 +2855,7 @@ class MaskRCNN():
         else:
             # Network Heads
             # Proposal classifier and BBox regressor heads
-            mrcnn_class_logits, mrcnn_class, mrcnn_bbox=\
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
                 fpn_classifier_graph(rpn_rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
@@ -2891,7 +2889,7 @@ class MaskRCNN():
             """                                                config.NUM_KEYPOINTS) """
 
             model = KM.Model([input_image, input_image_meta],
-                             [detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask],
+                             [detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_bodyweight],
                              name='bodyweight_mask_rcnn')
 
         # Add multi-GPU support.
@@ -3265,7 +3263,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def unmold_keypoint_detections(self, detections, image_shape, window, mrcnn_mask):
+    def unmold_keypoint_detections(self, detections, image_shape, window, mrcnn_mask, mrcnn_bodyweight):
         """Reformats the detections of one image from the format of the neural
         network output to a format suitable for use in the rest of the
         application.
@@ -3293,7 +3291,7 @@ class MaskRCNN():
         class_ids = detections[:N, 4].astype(np.int32)
         scores = detections[:N, 5]
         masks = mrcnn_mask[np.arange(N), :, :, class_ids]
-        bodyweights = detections[:N, 6]
+        bodyweights = mrcnn_bodyweight[np.arange(N), class_ids]
 
         # Compute scale and shift to translate coordinates to image domain.
         h_scale = image_shape[0] / (window[2] - window[0])
@@ -3406,7 +3404,7 @@ class MaskRCNN():
         # Run human pose detection
         #[detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, keypoint_mcrcnn_prob]
         detections, mrcnn_class, mrcnn_bbox, \
-            rois, rpn_class, rpn_bbox, mrcnn_mask =\
+            rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_bodyweight=\
             self.keras_model.predict([molded_images, image_metas], verbose=0)
         if verbose:
             log("rpn_class", rpn_class)
@@ -3420,11 +3418,12 @@ class MaskRCNN():
             # 100
             log("detections", detections)
             log("mrcnn_mask", mrcnn_mask)
+            log("mrcnn_bodyweight", mrcnn_bodyweight)
         # Process detections
         results = []
         for i, image in enumerate(images):
             final_rois, final_class_ids, final_scores, final_bodyweight, final_masks=\
-                self.unmold_keypoint_detections(detections[i], image.shape, windows[i], mrcnn_mask[i])
+                self.unmold_keypoint_detections(detections[i], image.shape, windows[i], mrcnn_mask[i], mrcnn_bodyweight[i])
             results.append({
                 "rois": final_rois,
                 "class_ids": final_class_ids,
