@@ -1343,7 +1343,7 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_bw_bn4')(x)
     x = KL.Activation('relu')(x)
-    x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')
+    x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')(x)
     x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense1')(x)
     mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
                                             name='mrcnn_bodyweight')(x)
@@ -3291,7 +3291,7 @@ class MaskRCNN():
         class_ids = detections[:N, 4].astype(np.int32)
         scores = detections[:N, 5]
         masks = mrcnn_mask[np.arange(N), :, :, class_ids]
-        bodyweights = mrcnn_bodyweight[np.arange(N), class_ids]
+        bodyweights = mrcnn_bodyweight[:N, class_ids]
 
         # Compute scale and shift to translate coordinates to image domain.
         h_scale = image_shape[0] / (window[2] - window[0])
@@ -3311,7 +3311,7 @@ class MaskRCNN():
         # stages of training when the network weights are still a bit random.
         exclude_ix = np.where(
             (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
-        #bodyweights = np.multiply(bodyweights, 4000)
+        bodyweights = np.multiply(bodyweights, 4000)
         if exclude_ix.shape[0] > 0:
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)
