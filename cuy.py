@@ -66,7 +66,7 @@ class CuyConfig(Config):
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # Background + cuy
 
-    EPOCHS = 10
+    EPOCHS = 50
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 100
 
@@ -82,7 +82,7 @@ class CuyConfig(Config):
     MINI_MASK_SHAPE = (56, 56)
     MASK_SHAPE = [56, 56]
     DETECTION_MAX_INSTANCES = 10
-    BACKBONE = "resnet50"
+    BACKBONE = "resnet101"
 
 ############################################################
 #  Dataset
