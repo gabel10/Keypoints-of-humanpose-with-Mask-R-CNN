@@ -1361,7 +1361,7 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
     x = KL.Activation('relu')(x)
     x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')(x)
     x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense1')(x)
-    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense2')(x)
+    #x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense2')(x)
     mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
                                             name='mrcnn_bodyweight')(x)
     
