@@ -1543,7 +1543,7 @@ def mrcnn_bodyweight_loss_graph(target_bodyweight, active_class_ids, pred_bodywe
     """                 smooth_l1_loss(y_true=target_bodyweight, y_pred=pred_bodyweight), """
     """                 tf.constant(0.0)) """
     loss = K.switch(tf.size(target_bodyweight) > 0,
-                       tf.keras.losses.mean_squared_error(target_bodyweight, pred_bodyweight),
+                       tf.keras.losses.mean_absolute_error(target_bodyweight, pred_bodyweight),
                        tf.constant(0.0))
     loss = K.mean(loss)
     loss = K.reshape(loss, [1, 1])
