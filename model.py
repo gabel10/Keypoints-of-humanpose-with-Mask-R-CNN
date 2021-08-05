@@ -1275,36 +1275,43 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
                         name="roi_align_bw")([rois] + feature_maps)
 
     # Conv layers
-    x = KL.TimeDistributed(KL.Conv2D(32, (3, 3), padding="same"),
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_bw_conv1")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_bw_bn1')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.TimeDistributed(KL.Conv2D(32, (3, 3), padding="same"),
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_bw_conv2")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_bw_bn2')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.TimeDistributed(KL.Conv2D(32, (3, 3), padding="same"),
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_bw_conv3")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_bw_bn3')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.TimeDistributed(KL.Conv2D(32, (3, 3), padding="same"),
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_bw_conv4")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_bw_bn4')(x)
     x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+                           name="mrcnn_bw_conv5")(x)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                           name='mrcnn_bw_bn5')(x)
+    x = KL.Activation('relu')(x)
+
     x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')(x)
     x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense1')(x)
-    #x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense2')(x)
+    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense2')(x)
     mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
                                             name='mrcnn_bodyweight')(x)
     
-    return mrcnn_bodyweigh
+    return mrcnn_bodyweight
 
 ############################################################
 #  Loss Functions

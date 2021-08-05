@@ -470,8 +470,9 @@ def minimize_mask(bbox, mask, mini_shape):
     for i in range(mask.shape[-1]):
         m = mask[:, :, i]
         y1, x1, y2, x2 = bbox[i][:4]
-        side = (x2 - x1) if (x2 - x1) > (y2 - y1) else (y2 - y1)
-        m = m[y1:(y1 + side), x1:(x1 + side)]
+        #side = (x2 - x1) if (x2 - x1) > (y2 - y1) else (y2 - y1)
+        #m = m[y1:(y1 + side), x1:(x1 + side)]
+        m = m[y1:y2, x1:x2]
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
         m = scipy.misc.imresize(m.astype(float), mini_shape, interp='bilinear')
@@ -493,12 +494,13 @@ def expand_mask(bbox, mini_mask, image_shape):
         y1, x1, y2, x2 = bbox[i][:4]
         h = y2 - y1
         w = x2 - x1
-        side = w if (x2 - x1) > (y2 - y1) else h
-        m = scipy.misc.imresize(m.astype(float), (side, side), interp='bilinear')
+        #side = w if (x2 - x1) > (y2 - y1) else h
+        #m = scipy.misc.imresize(m.astype(float), (side, side), interp='bilinear')
+        m = scipy.misc.imresize(m.astype(float), (h, w), interp='bilinear')
         # _positon = np.argmax(m)  # get the index of max in the a
         # m_index, n_index = divmod(_positon, w)
         # print("Max in resize:", (m_index, n_index), m[m_index, n_index])
-        mask[y1:(y1 + side), x1:(x1 + side), i] = np.where(m >= 128, 1, 0)
+        mask[y1:y2, x1:x2, i] = np.where(m >= 128, 1, 0)
 
     return mask
 
@@ -519,13 +521,14 @@ def unmold_mask(mask, bbox, image_shape):
     threshold = 0.5
     y1, x1, y2, x2 = bbox
     side = (y2 - y1) if (y2 - y1) > (x2 - x1) else (x2 - x1)
+    #length = 
     mask = scipy.misc.imresize(
-        mask, (side, side), interp='bilinear').astype(np.float32) / 255.0
+        mask, (y2-y1, x2-x1), interp='bilinear').astype(np.float32) / 255.0
     mask = np.where(mask >= threshold, 1, 0).astype(np.uint8)
 
     # Put the mask in the right location.
     full_mask = np.zeros(image_shape[:2], dtype=np.uint8)
-    full_mask[y1:(y1 + side), x1:(x1 + side)] = mask
+    full_mask[y1:y2, x1:x2] = mask
     return full_mask
 
 ############################################################

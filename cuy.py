@@ -68,10 +68,10 @@ class CuyConfig(Config):
 
     EPOCHS = 50
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 100
+    STEPS_PER_EPOCH = 500
 
     # Skip detections with < 90% confidence
-    DETECTION_MIN_CONFIDENCE = 0.
+    DETECTION_MIN_CONFIDENCE = 0.9
     
     #RPN_ANCHOR_SCALES = (20, 40, 80, 256, 512)
 
@@ -82,7 +82,7 @@ class CuyConfig(Config):
     MINI_MASK_SHAPE = (56, 56)
     MASK_SHAPE = [56, 56]
     DETECTION_MAX_INSTANCES = 10
-    BACKBONE = "resnet50"
+    BACKBONE = "resnet101"
 
 ############################################################
 #  Dataset
