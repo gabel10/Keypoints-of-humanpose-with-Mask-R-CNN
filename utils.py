@@ -41,35 +41,6 @@ def bilinear_upsample_weights(factor, number_of_classes):
         weights[:, :, i, i] = upsample_kernel
     return weights
 
-""" def keypoint_to_mask(keypoints,height,width): """
-"""     Convert keypoints to masks and it's weight. """
-"""        keypoints: [num_person, num_keypoint, 3]. """
-"""        height,width: the generated mask shape """
-"""  """
-"""        Returns: """
-"""            keypoint_mask: A bool array of shape [height, width, num_person, num_keypoint] with """
-"""             one mask per joint.. """
-"""            keypoint_weight: A int array of shape [num_person, num_keypoint] one value per joint """
-"""            0: not visible and without annotations """
-"""            1: not visible but with annotations """
-"""            2: visible and with annotations """
-"""         """
-"""     shape = np.shape(keypoints) """
-"""  """
-"""     keypoint_mask = np.zeros([height,width,shape[0],shape[1]],dtype=bool) """
-"""     keypoint_weight = np.zeros([shape[0],shape[1]],dtype=int) """
-"""     for i in range(shape[0]): """
-"""         for j in range(shape[1]): """
-"""             J = keypoints[i,j] """
-"""             # print(J) """
-"""             if(J[2]): """
-"""                 keypoint_mask[J[1],J[0],i,j] = 1 """
-"""             keypoint_weight[i, j] = J[2] """
-"""     # keypoint_mask = np.reshape(keypoint_mask,[height,width,-1]) """
-"""     # keypoint_weight = np.reshape(keypoint_weight,[-1]) """
-"""     return keypoint_mask, keypoint_weight """
-
-
 ############################################################
 #  Bounding Boxes
 ############################################################
@@ -424,26 +395,6 @@ class Dataset(object):
         class_ids = np.empty([0], np.int32)
         return mask, class_ids
 
-    """ def load_keypoints(self, image_id): """
-    """     Load keypoints for the given image. """
-
-    """     Different datasets use different ways to store masks. Override this """
-    """     method to load keypoints and return them in the form of am """
-    """     array of coordinate(x,y) of shape [num_keypoints, 3]. """
-
-    """     Returns: """
-    """         keypoints: A  array of coordinate and visibility [num_keypoints, 3] with """
-    """             (x,y, v) per instance. """
-    """         class_ids: a 1D array of class IDs of the person, always equal to [1]. """
-    """     """ 
-    """     # Override this function to load a mask from your dataset. """
-    """     # Otherwise, it returns an empty mask. """
-    """     keypoints = np.empty([0, 0]) """
-    """     mask = np.empty([0, 0, 0]) """
-    """     class_ids = np.empty([0], np.int32) """
-    """     return keypoints, mask, class_ids """
-
-
 def resize_image(image, min_dim=None, max_dim=None, padding=False):
     """
     Resizes an image keeping the aspect ratio.
@@ -509,104 +460,6 @@ def resize_mask(mask, scale, padding):
     mask = np.pad(mask, padding, mode='constant', constant_values=0)
     return mask
 
-
-""" def get_keypoints(): """
-"""     Get the COCO keypoints and their left/right flip coorespondence map.""" 
-"""     # Keypoints are not available in the COCO json for the test split, so we """
-"""     # provide them here. """
-"""     keypoints = [ """
-"""         'nose', """
-"""         'left_eye', """
-"""         'right_eye', """
-"""         'left_ear', """
-"""         'right_ear', """
-"""         'left_shoulder', """
-"""         'right_shoulder', """
-"""         'left_elbow', """
-"""         'right_elbow', """
-"""         'left_wrist', """
-"""         'right_wrist', """
-"""         'left_hip', """
-"""         'right_hip', """
-"""         'left_knee', """
-"""         'right_knee', """
-"""         'left_ankle', """
-"""         'right_ankle' """
-"""     ] """
-"""     keypoint_flip_map = { """
-"""         'left_eye': 'right_eye', """
-"""         'left_ear': 'right_ear', """
-"""         'left_shoulder': 'right_shoulder', """
-"""         'left_elbow': 'right_elbow', """
-"""         'left_wrist': 'right_wrist', """
-"""         'left_hip': 'right_hip', """
-"""         'left_knee': 'right_knee', """
-"""         'left_ankle': 'right_ankle' """
-"""     } """
-"""     return keypoints, keypoint_flip_map """
-""" def flip_keypoints(keypoints, keypoint_flip_map, keypoint_coords, width): """
-"""     Left/right flip keypoint_coords. keypoints and keypoint_flip_map are """
-"""     accessible from get_keypoints(). """
-"""     keypoint_coords:[ni,_person, num_keypoint, 3] """
-"""     width: image_width """
-"""     """ 
-"""  """
-"""     flipped_kps = keypoint_coords.copy() """
-"""     for lkp, rkp in keypoint_flip_map.items(): """
-"""         lid = keypoints.index(lkp) """
-"""         rid = keypoints.index(rkp) """
-"""         flipped_kps[:, lid, :] = keypoint_coords[:, rid, :] """
-"""         flipped_kps[:, rid, :] = keypoint_coords[:, lid, :] """
-"""  """
-"""     # Flip x coordinates """
-"""     flipped_kps[:, :, 0] = width - flipped_kps[:, :, 0] - 1 """
-"""     # Maintain COCO convention that if visibility == 0, then x, y = 0 """
-"""     inds = np.where(flipped_kps[:, :, 2] == 0) """
-"""     flipped_kps[inds[0], inds[1], 0] = 0 """
-"""     return flipped_kps """
-""" def resize_keypoints(keypoint, new_size, scale, padding): """
-"""     Resizes a keypoint  using the given scale and padding. """
-"""         Typically, you get the scale and padding from resize_image() to """
-"""         ensure both, the image and the mask, are resized consistently. """
-"""         keypoint: [num_person, num_keypoint, 3] """
-"""         scale: mask scaling factor """
-"""         padding: Padding to add to the mask in the form """
-"""                 [(top, bottom), (left, right), (0, 0)] """
-"""         """ 
-"""     keypoint_shape = np.shape(keypoint) """
-"""     num_person = keypoint_shape[0] """
-"""     num_keypoint = keypoint_shape[1] """
-"""     for i in range(num_person): """
-"""         for j in range(num_keypoint): """
-"""             x = keypoint[i,j,0] """
-"""             y = keypoint[i,j,1] """
-"""             vis = keypoint[i,j,2] """
-"""             #scale """
-"""             x = int(x*scale+0.5) """
-"""             y = int(y*scale +0.5) """
-"""             if(x >=new_size[1]): """
-"""                 x = new_size[1] -1 """
-"""             if(y>= new_size[0]): """
-"""                 y = new_size[0] -1 """
-"""             #padding """
-"""             x = x + padding[1][0] """
-"""             y = y + padding[0][0] """
-"""             keypoint[i,j,:2] = [x,y] """
-"""  """
-"""     # keypoint[:,:,0] = np.array(keypoint[:,:,0]*scale + 0.5).astype(int) """
-"""     # keypoint[:,:,1] = np.array(keypoint[:,:,1]*scale + 0.5).astype(int) """
-"""     # X = keypoint[:,:,0] """
-"""     # Y = keypoint[:,:,1] """
-"""     # X[X>=new_size[1]] = new_size[1] -1 """
-"""     # Y[Y>=new_size[0]] = new_size[0] - 1 """
-"""     # X = X + padding[1,0] """
-"""     # Y = Y + padding[0,0] """
-"""     # keypoint[:, :, 0] =X """
-"""     # keypoint[:, :, 1] = Y """
-"""  """
-"""     return keypoint """
-"""  """
-
 def minimize_mask(bbox, mask, mini_shape):
     """Resize masks to a smaller version to cut memory load.
     Mini-masks can then resized back to image scale using expand_masks()
@@ -617,7 +470,8 @@ def minimize_mask(bbox, mask, mini_shape):
     for i in range(mask.shape[-1]):
         m = mask[:, :, i]
         y1, x1, y2, x2 = bbox[i][:4]
-        m = m[y1:y2, x1:x2]
+        side = (x2 - x1) if (x2 - x1) > (y2 - y1) else (y2 - y1)
+        m = m[y1:(y1 + side), x1:(x1 + side)]
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
         m = scipy.misc.imresize(m.astype(float), mini_shape, interp='bilinear')
@@ -626,81 +480,6 @@ def minimize_mask(bbox, mask, mini_shape):
         # print("Max in oringal:", (m_index, n_index), m[m_index, n_index])
         mini_mask[:, :, i] = np.where(m >= 128, 1, 0)
     return mini_mask
-
-# import cv2
-""" def minimize_keypoint_mask(bbox, keypointmask, mini_shape): """
-"""     Resize keypoint_mask to a smaller version to cut memory load. """
-"""         Mini-masks can then resized back to image scale using expand_masks() """
-"""  """
-"""         See inspect_data.ipynb notebook for more details. """
-"""         """ 
-"""     mini_mask = np.zeros(mini_shape + (keypointmask.shape[2],keypointmask.shape[3],), dtype=bool) """
-"""     for i in range(keypointmask.shape[2]): """
-"""         for j in range(keypointmask.shape[3]): """
-"""             m = keypointmask[:, :, i,j] """
-"""             y1, x1, y2, x2 = bbox[i][:4] """
-"""             m = m[y1:y2, x1:x2] """
-"""             if m.size == 0: """
-"""                 raise Exception("Invalid bounding box with area of zero") """
-"""             if m.sum() == 0: """
-"""                 mini_mask[0, 0, i,j] = 1 """
-"""                 # mini_mask = mini_mask """
-"""             else: """
-"""                 scale = np.asarray(mini_shape).astype(float) / m.shape """
-"""                 cordys, cordxs = np.where(m == np.max(m)) """
-"""                 scale = np.asarray(mini_shape).astype(float) / m.shape """
-"""                 cordys = (cordys * scale[0] + 0.5).astype(int) """
-"""                 cordxs = (cordxs * scale[1] + 0.5).astype(int) """
-"""                 cordys[cordys >= mini_shape[0]] = mini_shape[0] - 1 """
-"""                 cordxs[cordxs >= mini_shape[1]] = mini_shape[1] - 1 """
-"""                 final_y = np.mean(cordys).astype(int) """
-"""                 final_x = np.mean(cordxs).astype(int) """
-"""                 mini_mask[final_y, final_x, i,j] = 1 """
-"""                 # scale = np.asarray(mini_shape) / m.shape """
-"""                 # cord = np.where(m == int(m.max())) """
-"""                 # new_cord = np.array([cord[0] * scale[0], cord[1] * scale[1]], dtype=np.int32).reshape(2, ) """
-"""                 # mini_mask[new_cord[0], new_cord[1], i,j] = 1 """
-"""     return mini_mask """
-"""  """
-"""  """
-"""  """
-""" def expand_keypoint_mask(bbox,mini_mask,image_shape): """
-"""     Resizes mini keypoint masks back to image size. Reverses the change """
-"""         of minimize_mask(). """
-"""  """
-"""         See inspect_data.ipynb notebook for more details. """
-"""         """ 
-"""     keypoint_mask = np.zeros(image_shape[:2] + (mini_mask.shape[2],mini_mask.shape[3])) """
-"""  """
-"""     for i in range(keypoint_mask.shape[2]): """
-"""         for j in range(keypoint_mask.shape[3]): """
-"""             m = mini_mask[:, :, i,j] """
-"""             y1, x1, y2, x2 = bbox[i][:4] """
-"""  """
-"""             h = y2 - y1 """
-"""             w = x2 - x1 """
-"""             result = np.sum(m) """
-"""             if(result): """
-"""                 cordys, cordxs = np.where(m == np.max(m)) """
-"""                 scale = np.asarray([h, w]).astype(float) / m.shape """
-"""                 cordys = (cordys * scale[0] + 0.5).astype(int) """
-"""                 cordxs = (cordxs * scale[1] + 0.5).astype(int) """
-"""  """
-"""                 cordys[cordys >= h] = h - 1 """
-"""                 cordxs[cordxs >= w] = w - 1 """
-"""                 m = np.zeros(np.asarray([h, w]).astype(int), dtype=bool) """
-"""                 # print("m shape:", np.shape(m)) """
-"""                 final_y = np.mean(cordys).astype(int) """
-"""                 final_x = np.mean(cordxs).astype(int) """
-"""                 m[final_y, final_x] = 1 """
-"""             else: """
-"""                 m = np.zeros([h, w]) """
-"""  """
-"""             keypoint_mask[y1:y2, x1:x2, i,j] = m """
-"""  """
-"""  """
-"""     return keypoint_mask """
-
 
 def expand_mask(bbox, mini_mask, image_shape):
     """Resizes mini masks back to image size. Reverses the change
@@ -714,11 +493,12 @@ def expand_mask(bbox, mini_mask, image_shape):
         y1, x1, y2, x2 = bbox[i][:4]
         h = y2 - y1
         w = x2 - x1
-        m = scipy.misc.imresize(m.astype(float), (h, w), interp='bilinear')
+        side = w if (x2 - x1) > (y2 - y1) else h
+        m = scipy.misc.imresize(m.astype(float), (side, side), interp='bilinear')
         # _positon = np.argmax(m)  # get the index of max in the a
         # m_index, n_index = divmod(_positon, w)
         # print("Max in resize:", (m_index, n_index), m[m_index, n_index])
-        mask[y1:y2, x1:x2, i] = np.where(m >= 128, 1, 0)
+        mask[y1:(y1 + side), x1:(x1 + side), i] = np.where(m >= 128, 1, 0)
 
     return mask
 
@@ -738,54 +518,15 @@ def unmold_mask(mask, bbox, image_shape):
     """
     threshold = 0.5
     y1, x1, y2, x2 = bbox
+    side = (y2 - y1) if (y2 - y1) > (x2 - x1) else (x2 - x1)
     mask = scipy.misc.imresize(
-        mask, (y2 - y1, x2 - x1), interp='bilinear').astype(np.float32) / 255.0
+        mask, (side, side), interp='bilinear').astype(np.float32) / 255.0
     mask = np.where(mask >= threshold, 1, 0).astype(np.uint8)
 
     # Put the mask in the right location.
     full_mask = np.zeros(image_shape[:2], dtype=np.uint8)
-    full_mask[y1:y2, x1:x2] = mask
+    full_mask[y1:(y1 + side), x1:(x1 + side)] = mask
     return full_mask
-
-""" def unmold_keypoint_mask(keypoints_prob, bbox, image_shape, mask, keypoint_mask_shape = (56,56), keypoint_threshold= 0.08): """
-"""     Converts a mask generated by the neural network into a format similar """
-"""     to it's original shape. """
-"""     keypoints_probe: [num_keypoints, 56*56] of type float. """
-"""     bbox: [y1, x1, y2, x2]. The box to fit the mask in. """
-"""     image_shape: """
-"""     mask: [height, width, channel] of type float. A small, typically 28x28 mask. """
-"""     keypoint_mask_shape: """
-"""     keypoint_threshold: the threshold for filter the low confident keypoint """
-"""     Returns """
-"""     full_mask: [image_shape[0],image_shape[1], num_keypoints]a binary mask with the same size as the original image. """
-"""     keypoints: [num_keypoints, 3] for (x , y, valid) """
-"""     """ 
-"""  """
-"""     keypoints_label = np.argmax(keypoints_prob,1) """
-"""     keypoint_score = np.max(keypoints_prob,1) """
-"""  """
-"""     # print(keypoint_score) """
-"""  """
-"""     J_y = keypoints_label // keypoint_mask_shape[1] """
-"""     J_x = keypoints_label % keypoint_mask_shape[1] """
-"""     box_height = float(bbox[2] - bbox[0]) """
-"""     box_width = float(bbox[3] - bbox[1]) """
-"""     x_scale = box_width / keypoint_mask_shape[1] """
-"""     y_scale = box_height / keypoint_mask_shape[0] """
-"""     x_shift = bbox[1] """
-"""     y_shift = bbox[0] """
-"""     J_x = np.array(x_scale * J_x + 0.5).astype(int) + x_shift """
-"""     J_y = np.array(y_scale * J_y + 0.5).astype(int) + y_shift """
-"""     # print("J_x", J_x) """
-"""     # print("J_y",J_y) """
-"""     J_v = np.array(keypoint_score > keypoint_threshold).astype(int) """
-"""     keypoints = np.stack([J_x,J_y,J_v],axis=1) """
-"""  """
-"""     # print("J_v",J_v) """
-"""     full_mask = unmold_mask(mask,bbox,image_shape) """
-"""  """
-"""  """
-"""     return keypoints, full_mask """
 
 ############################################################
 #  Anchors
