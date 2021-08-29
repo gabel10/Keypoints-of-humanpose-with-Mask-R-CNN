@@ -49,7 +49,7 @@ if os.path.exists(args.output_dir):
 # create a new directory structure
 augmented_images_directory = "{}/images".format(args.output_dir)
 augmented_masks_directory = "{}/masks".format(args.output_dir)
-augmented_file = open('train_augmented.txt','w')
+augmented_file = open('val_augmented.txt','w')
 os.makedirs(args.output_dir)
 os.makedirs(augmented_images_directory)
 os.makedirs(augmented_masks_directory)        
