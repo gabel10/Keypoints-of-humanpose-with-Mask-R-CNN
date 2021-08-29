@@ -1258,16 +1258,11 @@ def build_fpn_mask_graph(rois, feature_maps,
     x = KL.TimeDistributed(BatchNorm(axis=3),
                             name="mrcnn_cbw_bn1")(x)
     x = KL.Activation('relu')(x)
-    x = KL.TimeDistributed(KL.Conv2D(256, (3,3), padding="same"),
-                            name="mrcnn_cbw_conv2")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                            name="mrcnn_cbw_bn2")(x)
-    x = KL.Activation('relu')(x)
 
     x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
-    x = KL.TimeDistributed(KL.Dense(1024, activation='relu'), name='mrcnn_cbw_dense1')(x)
-    x = KL.TimeDistributed(KL.Dense(512, activation='relu'), name='mrcnn_cbw_dense2')(x)
-    x = KL.TimeDistributed(KL.Dense(256, activation='relu'), name='mrcnn_cbw_dense3')(x)
+    x = KL.TimeDistributed(KL.Dense(1024, activation='linear'), name='mrcnn_cbw_dense1')(x)
+    #x = KL.TimeDistributed(KL.Dense(512, activation='relu'), name='mrcnn_cbw_dense2')(x)
+    #x = KL.TimeDistributed(KL.Dense(256, activation='relu'), name='mrcnn_cbw_dense3')(x)
     mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
                                             name='mrcnn_bodyweight')(x)
     return mrcnn_mask, mrcnn_bodyweight
@@ -2768,7 +2763,7 @@ class MaskRCNN():
             keras.callbacks.TensorBoard(log_dir=self.log_dir,
                                         histogram_freq=0, write_graph=True, write_images=False),
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
-                                            verbose=0, save_weights_only=True, save_best_only=True),
+                                            verbose=0, save_weights_only=True),
         ]
 
         # Train

@@ -72,8 +72,6 @@ class CuyConfig(Config):
 
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
-    
-    #RPN_ANCHOR_SCALES = (20, 40, 80, 256, 512)
 
     IMAGE_RESIZE_MODE = "square"
     IMAGE_MIN_DIM = 640
