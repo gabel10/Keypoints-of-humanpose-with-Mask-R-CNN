@@ -1244,15 +1244,33 @@ def build_fpn_mask_graph(rois, feature_maps,
                            name="mrcnn_mask_conv4")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_mask_bn4')(x)
-    x = KL.Activation('relu')(x)
+    shared = KL.Activation('relu')(x)
 
     x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
-                           name="mrcnn_mask_deconv1")(x)
+                           name="mrcnn_mask_deconv1")(shared)
     x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
                        name="mrcnn_mask_deconv2")(x)
-    x = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
+    mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
                            name="mrcnn_mask")(x)
-    return x
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3,3), padding="same"),
+                            name="mrcnn_cbw_conv1")(shared)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                            name="mrcnn_cbw_bn1")(x)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Conv2D(256, (3,3), padding="same"),
+                            name="mrcnn_cbw_conv2")(x)
+    x = KL.TimeDistributed(BatchNorm(axis=3),
+                            name="mrcnn_cbw_bn2")(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
+    x = KL.TimeDistributed(KL.Dense(1024, activation='relu'), name='mrcnn_cbw_dense1')(x)
+    x = KL.TimeDistributed(KL.Dense(512, activation='relu'), name='mrcnn_cbw_dense2')(x)
+    x = KL.TimeDistributed(KL.Dense(256, activation='relu'), name='mrcnn_cbw_dense3')(x)
+    mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
+                                            name='mrcnn_bodyweight')(x)
+    return mrcnn_mask, mrcnn_bodyweight
 
 def build_fpn_bodyweight_graph(rois, feature_maps,
                          image_shape, pool_size, num_classes):
@@ -2420,15 +2438,15 @@ class MaskRCNN():
                 fpn_classifier_graph(rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
-            mrcnn_mask = build_fpn_mask_graph(rois, mrcnn_feature_maps,
+            mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(rois, mrcnn_feature_maps,
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
 
-            mrcnn_bodyweight = build_fpn_bodyweight_graph(rois, mrcnn_feature_maps,
-                                              config.IMAGE_SHAPE,
-                                              config.MASK_POOL_SIZE,
-                                              config.NUM_CLASSES)
+            #mrcnn_bodyweight = build_fpn_bodyweight_graph(rois, mrcnn_feature_maps,
+            #                                  config.IMAGE_SHAPE,
+            #                                  config.MASK_POOL_SIZE,
+            #                                  config.NUM_CLASSES)
 
             """ keypoint_mrcnn_mask = build_fpn_keypoint_graph(rois, mrcnn_feature_maps, """
             """                                   config.IMAGE_SHAPE, """
@@ -2491,15 +2509,15 @@ class MaskRCNN():
                 lambda x: x[..., :4] / np.array([h, w, h, w]))(detections)
 
             # Create masks for detections
-            mrcnn_mask = build_fpn_mask_graph(detection_boxes, mrcnn_feature_maps,
+            mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(detection_boxes, mrcnn_feature_maps,
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
 
-            mrcnn_bodyweight = build_fpn_bodyweight_graph(detection_boxes, mrcnn_feature_maps,
-                                  config.IMAGE_SHAPE,
-                                  config.MASK_POOL_SIZE,
-                                  config.NUM_CLASSES)
+            #mrcnn_bodyweight = build_fpn_bodyweight_graph(detection_boxes, mrcnn_feature_maps,
+            #                      config.IMAGE_SHAPE,
+            #                      config.MASK_POOL_SIZE,
+            #                      config.NUM_CLASSES)
             """ keypoint_mrcnn = build_fpn_keypoint_graph(detection_boxes, mrcnn_feature_maps, """
             """                                                config.IMAGE_SHAPE, """
             """                                                config.KEYPOINT_MASK_POOL_SIZE, """
