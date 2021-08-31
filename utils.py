@@ -6,14 +6,21 @@ Copyright (c) 2017 Matterport, Inc.
 Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
-
+import sys
+import os
+import logging
+import math
+import random
 import numpy as np
 import tensorflow as tf
-import scipy.misc
+import scipy
 import skimage.color
 import skimage.io
+import skimage.transform
 import urllib.request
 import shutil
+import warnings
+from distutils.version import LooseVersion
 
 # URL from which to download the latest COCO trained weights
 COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5"
@@ -430,8 +437,8 @@ def resize_image(image, min_dim=None, max_dim=None, padding=False):
             scale = max_dim / image_max
     # Resize image and mask
     if scale != 1:
-        image = scipy.misc.imresize(
-            image, (round(h * scale), round(w * scale)))
+        image = resize(image, (round(h * scale), round(w * scale)),
+                               preserve_range=True)
     # Need padding?
     if padding:
         # Get new height and width
@@ -475,7 +482,7 @@ def minimize_mask(bbox, mask, mini_shape):
         m = m[y1:y2, x1:x2]
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
-        m = scipy.misc.imresize(m.astype(float), mini_shape, interp='bilinear')
+        m = resize(m, mini_shape)
         # _positon = np.argmax(m)  # get the index of max in the a
         # m_index, n_index = divmod(_positon, mini_shape[0])
         # print("Max in oringal:", (m_index, n_index), m[m_index, n_index])
@@ -495,8 +502,7 @@ def expand_mask(bbox, mini_mask, image_shape):
         h = y2 - y1
         w = x2 - x1
         #side = w if (x2 - x1) > (y2 - y1) else h
-        #m = scipy.misc.imresize(m.astype(float), (side, side), interp='bilinear')
-        m = scipy.misc.imresize(m.astype(float), (h, w), interp='bilinear')
+        m = resize(m, (h, w))
         # _positon = np.argmax(m)  # get the index of max in the a
         # m_index, n_index = divmod(_positon, w)
         # print("Max in resize:", (m_index, n_index), m[m_index, n_index])
@@ -522,8 +528,7 @@ def unmold_mask(mask, bbox, image_shape):
     y1, x1, y2, x2 = bbox
     side = (y2 - y1) if (y2 - y1) > (x2 - x1) else (x2 - x1)
     #length = 
-    mask = scipy.misc.imresize(
-        mask, (y2-y1, x2-x1), interp='bilinear').astype(np.float32) / 255.0
+    mask = resize(mask, (y2 - y1, x2 - x1))
     mask = np.where(mask >= threshold, 1, 0).astype(np.uint8)
 
     # Put the mask in the right location.
@@ -751,3 +756,25 @@ def download_trained_weights(coco_model_path, verbose=1):
         shutil.copyfileobj(resp, out)
     if verbose > 0:
         print("... done downloading pretrained model!")
+
+def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
+           preserve_range=False, anti_aliasing=False, anti_aliasing_sigma=None):
+    """A wrapper for Scikit-Image resize().
+    Scikit-Image generates warnings on every call to resize() if it doesn't
+    receive the right parameters. The right parameters depend on the version
+    of skimage. This solves the problem by using different parameters per
+    version. And it provides a central place to control resizing defaults.
+    """
+    if LooseVersion(skimage.__version__) >= LooseVersion("0.14"):
+        # New in 0.14: anti_aliasing. Default it to False for backward
+        # compatibility with skimage 0.13.
+        return skimage.transform.resize(
+            image, output_shape,
+            order=order, mode=mode, cval=cval, clip=clip,
+            preserve_range=preserve_range, anti_aliasing=anti_aliasing,
+            anti_aliasing_sigma=anti_aliasing_sigma)
+    else:
+        return skimage.transform.resize(
+            image, output_shape,
+            order=order, mode=mode, cval=cval, clip=clip,
+            preserve_range=preserve_range)
