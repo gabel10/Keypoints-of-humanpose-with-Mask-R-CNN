@@ -10,7 +10,6 @@ Written by Waleed Abdulla
 import math
 import numpy as np
 
-
 # Base Configuration Class
 # Don't use this class directly. Instead, sub-class it and override
 # the configurations you need to change.
@@ -143,7 +142,7 @@ class Config(object):
     # the RPN. For example, to debug the classifier head without having to
     # train the RPN.
     USE_RPN_ROIS = True
-    TRAIN_BN=False
+    TRAIN_BN=True
 
     def __init__(self):
         """Set values of computed attributes."""

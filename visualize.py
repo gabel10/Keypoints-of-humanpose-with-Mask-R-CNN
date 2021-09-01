@@ -19,13 +19,12 @@ from matplotlib.patches import Polygon
 import IPython.display
 import utils
 
-
 ############################################################
 #  Visualization
 ############################################################
 def log(text, array=None):
     """Prints a text message. And, optionally, if a Numpy array is provided it
-    prints it's shape, min, and max values.
+        prints it's shape, min, and max values.
     """
     if array is not None:
         text = text.ljust(25)
@@ -58,7 +57,6 @@ def display_images(images, titles=None, cols=4, cmap=None, norm=None,
         i += 1
     plt.show()
 
-
 def random_colors(N, bright=True):
     """
     Generate random colors.
@@ -71,17 +69,14 @@ def random_colors(N, bright=True):
     random.shuffle(colors)
     return colors
 
-
 def apply_mask(image, mask, color, alpha=0.5):
-    """Apply the given mask to the image.
-    """
+    """Apply the given mask to the image."""
     for c in range(3):
         image[:, :, c] = np.where(mask == 1,
                                   image[:, :, c] *
                                   (1 - alpha) + alpha * color[c] * 255,
                                   image[:, :, c])
     return image
-
 
 def display_instances(image, boxes, masks, class_ids, class_names,
                       scores=None, title="",
@@ -161,6 +156,7 @@ def display_instances_bw(image, boxes, masks, bodyweight,class_ids, class_names,
     """
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
     masks: [height, width, num_instances]
+    bodyweight: [num_instances]
     class_ids: [num_instances]
     class_names: list of class names of the dataset
     scores: (optional) confidence scores for each box
@@ -229,163 +225,6 @@ def display_instances_bw(image, boxes, masks, bodyweight,class_ids, class_names,
     ax.imshow(masked_image.astype(np.uint8))
     plt.show()
 
-""" def display_image_keypoint_mask(image, boxes, keypoints, keypoint_weight, class_ids, class_names, config, iskeypointlabel=True): """
-"""     """
-"""        keypoints: [num_instance, num_keypoints] Every value is a int label which indicates the position ([0,56*56)) of the joint """
-"""        keypoint_weight: [num_instance, num_keypoints] """
-"""             0：the keypint is not in the roi or not visible """
-"""             1: the keypoint is in the roi and is visible and annotated """
-"""        class_ids: [num_instances] """
-"""        class_names: list of class names of the dataset """
-"""        """ 
-"""     non_zeros = class_ids > 0 """
-"""     boxes = boxes[non_zeros] """
-"""     keypoint_weight = keypoint_weight[non_zeros, :] """
-"""     class_ids = class_ids[non_zeros] """
-"""     if(iskeypointlabel):# convert the label of joint into coordinate """
-"""         keypoint_label = keypoints[non_zeros, :] """
-"""         J_y = keypoint_label // config.KEYPOINT_MASK_SHAPE[1] """
-"""         J_x = keypoint_label % config.KEYPOINT_MASK_SHAPE[1] """
-"""         box_scales = np.array([image.shape[0], image.shape[1], image.shape[0], image.shape[1]]) """
-"""         box_scales = np.reshape(box_scales, (1, -1)) """
-"""         boxes = np.array(boxes * box_scales) """
-"""         box_height = boxes[:, 2] - boxes[:, 0] """
-"""         box_width = boxes[:, 3] - boxes[:, 1] """
-"""         x_scale = box_width / config.KEYPOINT_MASK_SHAPE[1] """
-"""         y_scale = box_height / config.KEYPOINT_MASK_SHAPE[0] """
-"""         x_scale = np.expand_dims(x_scale, -1) """
-"""         y_scale = np.expand_dims(y_scale, -1) """
-"""         x_shift = boxes[:, 1] """
-"""         y_shift = boxes[:, 0] """
-"""         x_shift = np.expand_dims(x_shift, -1) """
-"""         y_shift = np.expand_dims(y_shift, -1) """
-"""  """
-"""         J_x = np.array(x_scale * J_x + 0.5).astype(int) + x_shift """
-"""         J_y = np.array(y_scale * J_y + 0.5).astype(int) + y_shift """
-"""         J_x = np.expand_dims(J_x, -1) """
-"""         J_y = np.expand_dims(J_y, -1) """
-"""         J_v = np.expand_dims(keypoint_weight, -1) """
-"""  """
-"""         keypoints = np.concatenate([J_x, J_y, J_v], 2) """
-"""         # log("J_x", J_x) """
-"""         # log("J_y", J_y) """
-"""         # log("J_v", J_y) """
-"""         # log("keypoints", keypoints) """
-"""     else: """
-"""  """
-"""         y1 = boxes[:,0] """
-"""         x1 = boxes[:,1] """
-"""         y2 = boxes[:,2] """
-"""         x2 = boxes[:,3] """
-"""         h = y2-y1 """
-"""         w = x2-x1 """
-"""         h = np.expand_dims(h,-1) """
-"""         w = np.expand_dims(w,-1) """
-"""         x1 = np.expand_dims(x1,-1) """
-"""         x2 = np.expand_dims(x2,-1) """
-"""         y1 = np.expand_dims(y1,-1) """
-"""         y2 = np.expand_dims(y2,-1) """
-"""         keypoints = keypoints[non_zeros, :, :] """
-"""         heatmap_scale_h = h*image.shape[0]/config.KEYPOINT_MASK_SHAPE[0] """
-"""         heatmap_scale_w = w *image.shape[1] / config.KEYPOINT_MASK_SHAPE[1] """
-"""  """
-"""         keypoints[:, :, 0] = keypoints[:, :, 0] *heatmap_scale_w + x1*image.shape[1] """
-"""         keypoints[:, :, 1] = keypoints[:, :, 1] *heatmap_scale_h + y1*image.shape[0] """
-"""  """
-"""         box_scales = np.array([image.shape[0], image.shape[1], image.shape[0], image.shape[1]]) """
-"""         box_scales = np.reshape(box_scales, (1, -1)) """
-"""         boxes = np.array(boxes * box_scales) """
-"""     display_keypoints(image, boxes, keypoints, class_ids, class_names) """
-"""  """
-""" def display_bodyweight(image, boxes, bodyweight, class_ids, class_names, """
-"""                       skeleton = [], scores=None, title="", """
-"""                       figsize=(16, 16), ax=None): """
-"""     """ 
-"""     boxes: [num_persons, (y1, x1, y2, x2)] in image coordinates. """
-"""     keypoints: [num_persons, num_keypoint, 3] """
-"""     class_ids: [num_persons] """
-"""     class_names: list of class names of the dataset """
-"""     scores: (optional) confidence scores for each box """
-"""     figsize: (optional) the size of the image. """
-"""     """ 
-"""     # Number of persons """
-"""     N = boxes.shape[0] """
-"""     #keypoints = np.array(keypoints).astype(int) """
-"""     print("keypoint_shape:", np.shape(bodyweight)) """
-"""     if not N: """
-"""         print("\n*** No persons to display *** \n") """
-"""     else: """
-"""         assert boxes.shape[0] == bodyweight.shape[0] == class_ids.shape[0] """
-"""  """
-"""     if not ax: """
-"""         _, ax = plt.subplots(1, figsize=figsize) """
-"""  """
-"""     # Generate random colors """
-"""     colors = random_colors(N) """
-"""  """
-"""     # Show area outside image boundaries. """
-"""     height, width = image.shape[:2] """
-"""     ax.set_ylim(height + 10, -10) """
-"""     ax.set_xlim(-10, width + 10) """
-"""     ax.axis('off') """
-"""     ax.set_title(title) """
-"""     skeleton_image = image.astype(np.float32).copy() """
-"""     for i in range(N): """
-"""         color = colors[i] """
-"""  """
-"""         # Bounding box """
-"""         if not np.any(boxes[i]): """
-"""             # Skip this instance. Has no bbox. Likely lost in image cropping. """
-"""             continue """
-"""         y1, x1, y2, x2 = boxes[i] """
-"""         p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=4, """
-"""                               alpha=0.7, linestyle="dashed", """
-"""                               edgecolor=color, facecolor='none') """
-"""         ax.add_patch(p) """
-"""  """
-"""         # Label """
-"""         class_id = class_ids[i] """
-"""         score = scores[i] if scores is not None else None """
-"""         label = class_names[class_id] """
-"""         # x = random.randint(x1, (x1 + x2) // 2) """
-"""         caption = "{} {:.3f}".format(label, score) if score else label """
-"""         ax.text(x1, y1 + 8, caption, """
-"""                 color='w', size=11, backgroundcolor="none") """
-"""         # Keypoints: num_person, num_keypoint, 3 """
-"""         #for Joint in keypoints[i]: """
-"""         #    if(Joint[2]!=0): """
-"""         #        circle = patches.Circle((Joint[0],Joint[1]),radius=1,edgecolor=color,facecolor='none') """
-"""         #        ax.add_patch(circle) """
-"""  """
-"""         # Skeleton: 11*2 """
-"""         #limb_colors = [[0, 0, 255], [0, 170, 255], [0, 255, 170], [0, 255, 0], [170, 255, 0], """
-"""         #          [255, 170, 0], [255, 0, 0], [255, 0, 170], [170, 0, 255], [170,170,0],[170,0,170]] """
-"""         """ """ if(len(skeleton)): """ """ """
-"""         """ """     skeleton = np.reshape(skeleton,(-1,2)) """ """ """
-"""         """ """     neck = np.array((keypoints[i, 5, :] + keypoints[i,6,:])/2).astype(int) """ """ """
-"""         """ """     if(keypoints[i, 5, 2] == 0 or keypoints[i,6,2] == 0): """ """ """
-"""         """ """         neck = [0,0,0] """ """ """
-"""         """ """     limb_index = -1 """ """ """
-"""         """ """     for limb in skeleton: """ """ """
-"""         """ """         limb_index += 1 """ """ """
-"""         """ """         start_index, end_index = limb  # connection joint index from 0 to 16 """ """ """
-"""         """ """         if(start_index == -1): """ """ """
-"""         """ """             Joint_start = neck """ """ """
-"""         """ """         else: """ """ """
-"""         """ """             Joint_start = keypoints[i][start_index] """ """ """
-"""         """ """         if(end_index == -1): """ """ """
-"""         """ """             Joint_end = neck """ """ """
-"""         """ """         else: """ """ """
-"""         """ """             Joint_end = keypoints[i][end_index] """ """ """
-"""         """ """         # both are Annotated """ """ """
-"""         """ """         # Joint:(x,y,v) """ """ """
-"""         """ """         if ((Joint_start[2] != 0) & (Joint_end[2] != 0)): """ """ """
-"""         """ """             # print(color) """ """ """
-"""         """ """             cv2.line(skeleton_image, tuple(Joint_start[:2]), tuple(Joint_end[:2]), limb_colors[limb_index],5) """ """ """
-"""     #ax.imshow(skeleton_image.astype(np.uint8)) """
-"""     plt.show() """
-"""      """
-
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):
     """
     anchors: [n, (y1, x1, y2, x2)] list of anchors in image coordinates.
@@ -446,7 +285,6 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
     print("Positive Ratio: {:.2f}".format(
         class_ids[class_ids > 0].shape[0] / class_ids.shape[0]))
 
-
 # TODO: Replace with matplotlib equivalent?
 def draw_box(image, box, color):
     """Draw 3-pixel width bounding boxes on the given image array.
@@ -458,7 +296,6 @@ def draw_box(image, box, color):
     image[y1:y2, x1:x1 + 2] = color
     image[y1:y2, x2:x2 + 2] = color
     return image
-
 
 def display_top_masks(image, mask, class_ids, class_names, limit=4):
     """Display the given image and the top few class masks."""
@@ -498,7 +335,6 @@ def plot_precision_recall(AP, precisions, recalls):
     ax.set_xlim(0, 1.1)
     _ = ax.plot(recalls, precisions)
 
-
 def plot_overlaps(gt_class_ids, pred_class_ids, pred_scores,
                   overlaps, class_names, threshold=0.5):
     """Draw a grid showing how ground truth objects are classified.
@@ -536,7 +372,6 @@ def plot_overlaps(gt_class_ids, pred_class_ids, pred_scores,
     plt.tight_layout()
     plt.xlabel("Ground Truth")
     plt.ylabel("Predictions")
-
 
 def draw_boxes(image, boxes=None, refined_boxes=None,
                masks=None, captions=None, visibilities=None,
@@ -640,7 +475,6 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
                 ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
 
-
 def display_table(table):
     """Display values in a table format.
     table: an iterable of rows, and each row is an iterable of values.
@@ -653,7 +487,6 @@ def display_table(table):
         html += "<tr>" + row_html + "</tr>"
     html = "<table>" + html + "</table>"
     IPython.display.display(IPython.display.HTML(html))
-
 
 def display_weight_stats(model):
     """Scans all the weights in the model and returns a list of tuples
