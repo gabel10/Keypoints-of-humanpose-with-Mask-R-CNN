@@ -447,7 +447,7 @@ def _conv_block(inputs, filters, alpha, kernel=(3, 3), strides=(1, 1),block_id=1
                use_bias=False,
                strides=strides,
                name='conv{}'.format(block_id))(inputs)
-    x = BatchNorm(axis=channel_axis, name='conv{}_bn'.format(block_id))(x, training = train_bn)
+    x = BatchNorm(axis=channel_axis, name='conv{}_bn'.format(block_id))(x)
     return KL.Activation(relu6, name='conv{}_relu'.format(block_id))(x)
 
 def _depthwise_conv_block(inputs, pointwise_conv_filters, alpha,
@@ -503,7 +503,7 @@ def _depthwise_conv_block(inputs, pointwise_conv_filters, alpha,
                     strides=strides,
                     use_bias=False,
                     name='conv_dw_{}'.format(block_id))(inputs)
-    x = BatchNorm(axis=channel_axis, name='conv_dw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = BatchNorm(axis=channel_axis, name='conv_dw_{}_bn'.format(block_id))(x)
     x = KL.Activation(relu6, name='conv_dw_{}_relu'.format(block_id))(x)
     # Pointwise
     x = KL.Conv2D(pointwise_conv_filters, (1, 1),
@@ -511,7 +511,7 @@ def _depthwise_conv_block(inputs, pointwise_conv_filters, alpha,
                     use_bias=False,
                     strides=(1, 1),
                     name='conv_pw_{}'.format(block_id))(x)
-    x = BatchNorm(axis=channel_axis, name='conv_pw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = BatchNorm(axis=channel_axis, name='conv_pw_{}_bn'.format(block_id))(x)
     return KL.Activation(relu6, name='conv_pw_{}_relu'.format(block_id))(x)
 
 def mobilenetv1_graph(inputs, architecture, alpha=1.0, depth_multiplier=1, train_bn = False):
@@ -591,7 +591,7 @@ def _bottleneck(inputs, filters, kernel, t, s, r=False, alpha=1.0, block_id=1, t
                     depth_multiplier=1,
                     padding='same',
                     name='conv_dw_{}'.format(block_id))(x)
-    x = BatchNorm(axis=channel_axis,name='conv_dw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = BatchNorm(axis=channel_axis,name='conv_dw_{}_bn'.format(block_id))(x)
     x = KL.Activation(relu6, name='conv_dw_{}_relu'.format(block_id))(x)
 
     x = KL.Conv2D(filters,
@@ -599,7 +599,7 @@ def _bottleneck(inputs, filters, kernel, t, s, r=False, alpha=1.0, block_id=1, t
                     strides=(1, 1),
                     padding='same',
                     name='conv_pw_{}'.format(block_id))(x)
-    x = BatchNorm(axis=channel_axis, name='conv_pw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = BatchNorm(axis=channel_axis, name='conv_pw_{}_bn'.format(block_id))(x)
 
     if r:
         x = KL.add([x, inputs], name='res{}'.format(block_id))
@@ -2498,7 +2498,7 @@ def data_generator_bodyweight(dataset, config, shuffle=True, augment=True, rando
                                              config.BACKBONE_SHAPES,
                                              config.BACKBONE_STRIDES,
                                              config.RPN_ANCHOR_STRIDE)
-
+    
     # Keras requires a generator to run indefinately.
     while True:
         try:
@@ -2719,7 +2719,7 @@ class MaskRCNN():
         # Returns a list of the last layers of each stage, 5 in total.
         # Don't create the thead (stage 5), so we pick the 4th item in the list.
         if config.BACKBONE in ['resnet50', 'resnet101']:
-            _, C2, C3, C4, C5 = resnet_graph(input_image, config.BACKBONE, stage5=True, train_bn=config.TRAIN_BN)
+            _, C2, C3, C4, C5 = resnet_graph(input_image, config.BACKBONE, stage5=True)
         elif config.BACKBONE in ["mobilenetv1"]:
             _, C2, C3, C4, C5 = mobilenetv1_graph(input_image, config.BACKBONE, alpha=1.0, train_bn=config.TRAIN_BN)
         elif config.BACKBONE in ["mobilenetv2"]:
@@ -3006,6 +3006,14 @@ class MaskRCNN():
                                         TF_WEIGHTS_PATH_NO_TOP,
                                         cache_subdir='models',
                                         md5_hash='725ccbd03d61d7ced5b5c4cd17e7d527')
+            elif self.config.BACKBONE == "mobilenetv2":
+                TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
+                         'releases/download/v0.6/'\
+                         'mobilenet_1_0_224_tf_no_top.h5'
+                weights_path = get_file('mobilenet_1_0_224_tf_no_top.h5',
+                        TF_WEIGHTS_PATH_NO_TOP,
+                        cache_subdir='models',
+                        md5_hash='725ccbd03d61d7ced5b5c4cd17e7d527')
         else:
             if self.config.BACKBONE == "mobilenetv1":
                 TF_WEIGHTS_PATH  = 'https://github.com/fchollet/deep-learning-models/'\

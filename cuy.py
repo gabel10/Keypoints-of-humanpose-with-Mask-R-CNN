@@ -74,7 +74,7 @@ class CuyConfig(Config):
     # Number of max detectiosn per images
     DETECTION_MAX_INSTANCES = 10
     # Backbone of the Mask RCNN (resnet50, resnet101, mobilenetv1, mobilenetv2)
-    BACKBONE = "resnet101"
+    BACKBONE = "mobilenetv2"
 
 ############################################################
 #  Dataset
@@ -98,7 +98,7 @@ class CuyDataset(utils.Dataset):
         dataset_dir = os.path.join(dataset_dir, subset)
 
         # Read the image Id and the bodyweight
-        for filename in enumerate(os.listdir(dataset_dir)):
+        for i, filename in enumerate(os.listdir(dataset_dir)):
             if '.jpg' in filename:
                 image_id = filename[:-4]
                 weight_index = np.where(weights_labels == filename)
