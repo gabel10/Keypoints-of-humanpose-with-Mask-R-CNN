@@ -1,26 +1,25 @@
 """
 Mask R-CNN
-Train on the cuy dataset
+Train on the bodyweights of cuy dataset
 
+Written by Gabriel Zapata
 ------------------------------------------------------------
-
-Usage: import the module (see Jupyter notebooks for examples), or run from
-       the command line as such:
+Usage: import the module (see Jupyter notebooks for examples), or run from the command line as such:
 
     # Train a new model starting from pre-trained COCO weights
-    python3 balloon.py train --dataset=/path/to/balloon/dataset --weights=coco
+    python cuy.py train --dataset=/path/to/cuy/dataset --weights=coco
 
     # Resume training a model that you had trained earlier
-    python3 balloon.py train --dataset=/path/to/balloon/dataset --weights=last
+    python cuy.py train --dataset=/path/to/cuy/dataset --weights=last
 
     # Train a new model starting from ImageNet weights
-    python3 balloon.py train --dataset=/path/to/balloon/dataset --weights=imagenet
+    python cuy.py train --dataset=/path/to/cuy/dataset --weights=imagenet
 
     # Apply color splash to an image
-    python3 balloon.py splash --weights=/path/to/weights/file.h5 --image=<URL or path to file>
+    python cuy.py splash --weights=/path/to/weights/file.h5 --image=<URL or path to file>
 
     # Apply color splash to video using the last weights you trained
-    python3 balloon.py splash --weights=last --video=<URL or path to file>
+    python cuy.py splash --weights=last --video=<URL or path to file>
 """
 
 import os
@@ -47,40 +46,35 @@ DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
 ############################################################
 #  Configurations
 ############################################################
-
-
 class CuyConfig(Config):
-    """Configuration for training on the cuy  dataset.
-    Derives from the base Config class and overrides some values.
+    """Configuration for training on the cuy's bodyweight dataset.
+        Derives from the base Config class and overrides some values.
     """
-    # Give the configuration a recognizable name
+    # Name of the configuration
     NAME = "cuy"
-
     # NUMBER OF GPUs to use. When using only a CPU, this needs to be set to 1.
     GPU_COUNT = 1
-
-    # We use a GPU with 12GB memory, which can fit two images.
-    # Adjust down if you use a smaller GPU.
     IMAGES_PER_GPU = 2
-
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # Background + cuy
-
+    # Number of epochs to train, and training steps per epoch
     EPOCHS = 50
-    # Number of training steps per epoch
     STEPS_PER_EPOCH = 500
-
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
-
+    # Mode and size of the input image
     IMAGE_RESIZE_MODE = "square"
     IMAGE_MIN_DIM = 640
     IMAGE_MAX_DIM = 640
+    # Number of ROIS to train per image
     TRAIN_ROIS_PER_IMAGE = 100
+    # Mine Mask Shape
     MINI_MASK_SHAPE = (56, 56)
     MASK_SHAPE = [56, 56]
+    # Number of max detectiosn per images
     DETECTION_MAX_INSTANCES = 10
-    BACKBONE = "resnet50"
+    # Backbone of the Mask RCNN (resnet50, resnet101, mobilenetv1, mobilenetv2)
+    BACKBONE = "resnet101"
 
 ############################################################
 #  Dataset
@@ -89,21 +83,22 @@ class CuyConfig(Config):
 class CuyDataset(utils.Dataset):
 
     def load_dataset(self, dataset_dir,subset, weightsFile):
-        """Load a subset of the Cuy dataset.
-        dataset_dir: Root directory of the dataset.
-        subset: Sub directory of the dataset
+        """Load a subset of the Cuy's bodyweight dataset.
+            dataset_dir: Root directory of the dataset.
+            subset: Sub directory of the dataset
         """
-        # Add classes. We have only one class to add.
+        # Add classes. We have only one class (cuy) to add.
         self.add_class("dataset", 1, "cuy")
 
-        # File with cuy body weights
+        # File with cuy's bodyweights (gr)
         weights_labels = np.loadtxt(weightsFile, str)
 
         # Train or validation dataset?
         assert subset in ["train", "val"]
         dataset_dir = os.path.join(dataset_dir, subset)
 
-        for i, filename in enumerate(os.listdir(dataset_dir)):
+        # Read the image Id and the bodyweight
+        for filename in enumerate(os.listdir(dataset_dir)):
             if '.jpg' in filename:
                 image_id = filename[:-4]
                 weight_index = np.where(weights_labels == filename)
@@ -114,30 +109,12 @@ class CuyDataset(utils.Dataset):
                                 path=os.path.join(dataset_dir, filename),
                                 weight=weight)
 
-    def load_dataset_test(self, dataset_dir,subset):
-        """Load a subset of the Cuy dataset.
-        dataset_dir: Root directory of the dataset.
-        subset: Sub directory of the dataset
-        """
-        # Add classes. We have only one class to add.
-        self.add_class("dataset", 1, "cuy")
-        # Train or validation dataset?
-        assert subset in ["train", "val"]
-        dataset_dir = os.path.join(dataset_dir, subset)
-        for i, filename in enumerate(os.listdir(dataset_dir)):
-            if '.jpg' in filename:
-                image_id = filename[:-4]
-                self.add_image( 'dataset', 
-                            image_id=image_id,
-                            path=os.path.join(dataset_dir, filename))
-
     def load_mask(self, image_id):
-        """Generate instance masks and weights for an image.
-       Returns:
-        masks: A bool array of shape [height, width, instance count] with
-            one mask per instance.
-        weight: A 1D array of body weights of the instance masks.
-        class_ids: a 1D array of class IDs of the instance masks.
+        """Load instance masks and weights for an image.
+            Returns:
+                masks: A bool array of shape [height, width, instance count] with one mask per instance.
+                weight: A 1D array of body weights of the instance masks.
+                class_ids: a 1D array of class IDs of the instance masks.
         """
         # If not a cuy dataset image, delegate to parent class.
         info = self.image_info[image_id]
@@ -167,12 +144,12 @@ def train(model):
     """Train the model."""
     # Training dataset.
     dataset_train = CuyDataset()
-    dataset_train.load_dataset(args.dataset, "train", args.cuyfile)
+    dataset_train.load_dataset(args.dataset, "train", args.bwfile)
     dataset_train.prepare()
 
     # Validation dataset
     dataset_val = CuyDataset()
-    dataset_val.load_dataset(args.dataset, "val", args.cuyfile)
+    dataset_val.load_dataset(args.dataset, "val", args.bwfile)
     dataset_val.prepare()
 
     # *** This training schedule is an example. Update to your needs ***
@@ -185,12 +162,10 @@ def train(model):
                 epochs=config.EPOCHS,
                 layers='heads')
 
-
 def color_splash(image, mask):
     """Apply color splash effect.
-    image: RGB image [height, width, 3]
-    mask: instance segmentation mask [height, width, instance count]
-
+        image: RGB image [height, width, 3]
+        mask: instance segmentation mask [height, width, instance count]
     Returns result image.
     """
     # Make a grayscale copy of the image. The grayscale copy still
@@ -205,10 +180,8 @@ def color_splash(image, mask):
         splash = gray.astype(np.uint8)
     return splash
 
-
 def detect_and_color_splash(model, image_path=None, video_path=None):
     assert image_path or video_path
-
     # Image or video?
     if image_path:
         # Run model detection and generate the color splash effect
@@ -229,13 +202,11 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         width = int(vcapture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(vcapture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = vcapture.get(cv2.CAP_PROP_FPS)
-
         # Define codec and create video writer
         file_name = "splash_{:%Y%m%dT%H%M%S}.avi".format(datetime.datetime.now())
         vwriter = cv2.VideoWriter(file_name,
                                   cv2.VideoWriter_fourcc(*'MJPG'),
                                   fps, (width, height))
-
         count = 0
         success = True
         while success:
@@ -257,29 +228,27 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         vwriter.release()
     print("Saved to ", file_name)
 
-
 ############################################################
 #  Training
 ############################################################
 
 if __name__ == '__main__':
     import argparse
-
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description='Train Mask R-CNN to detect cuys.')
+        description='Train Weight Mask R-CNN to detect cuy bodyweight.')
     parser.add_argument("command",
                         metavar="<command>",
                         help="'train' or 'splash'")
     parser.add_argument('--dataset', required=False,
                         metavar="/path/to/cuy/dataset/",
-                        help='Directory of the Cuy dataset')
-    parser.add_argument('--cuyfile', required=False,
+                        help='Directory of the cuy bodyweight dataset')
+    parser.add_argument('--bwfile', required=False,
                         metavar="/path/to/cuy-weights.txt",
-                        help='File of the weight of the cuys')
+                        help='File of the weights of the cuys (.txt)')
     parser.add_argument('--weights', required=True,
                         metavar="/path/to/weights.h5",
-                        help="Path to weights .h5 file or 'coco'")
+                        help="Path to weights .h5 file or 'coco' or 'imagenet'")
     parser.add_argument('--logs', required=False,
                         default=DEFAULT_LOGS_DIR,
                         metavar="/path/to/logs/",
@@ -294,15 +263,14 @@ if __name__ == '__main__':
 
     # Validate arguments
     
-    """ if args.command == "train": """
-    """     assert args.dataset, "Argument --dataset adn --cuyfile is required for training" """
-    """ elif args.command == "splash": """
-    """     assert args.image or args.video,\ """
-    """            "Provide --image or --video to apply color splash" """
+    if args.command == "train": 
+         assert args.dataset, "Argument --dataset adn --bwfile is required for training" 
+    elif args.command == "splash": 
+         assert args.image or args.video, "Provide --image or --video to apply color splash" 
 
     print("Weights: ", args.weights)
     print("Dataset: ", args.dataset)
-    print("Weight File: ", args.cuyfile)
+    print("Bodyweight File: ", args.bwfile)
     print("Logs: ", args.logs)
 
     # Configurations
@@ -319,11 +287,9 @@ if __name__ == '__main__':
 
     # Create model
     if args.command == "train":
-        model = modellib.MaskRCNN(mode="training", config=config,
-                                  model_dir=args.logs)
+        model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.logs)
     else:
-        model = modellib.MaskRCNN(mode="inference", config=config,
-                                  model_dir=args.logs)
+        model = modellib.MaskRCNN(mode="inference", config=config, model_dir=args.logs)
 
     # Select weights file to load
     if args.weights.lower() == "coco":
@@ -343,8 +309,7 @@ if __name__ == '__main__':
     # Load weights
     print("Loading weights ", weights_path)
     if args.weights.lower() == "coco":
-        # Exclude the last layers because they require a matching
-        # number of classes
+        # Exclude the last layers because they require a matching number of classes
         model.load_weights(weights_path, by_name=True, exclude=[
             "mrcnn_class_logits", "mrcnn_bbox_fc",
             "mrcnn_bbox", "mrcnn_mask"])

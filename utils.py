@@ -25,29 +25,6 @@ from distutils.version import LooseVersion
 # URL from which to download the latest COCO trained weights
 COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5"
 
-
-############################################################
-#  Human Pose
-############################################################
-
-def upsample_filt(size):
-    factor = (size + 1) // 2
-    if size % 2 == 1:
-        center = factor - 1
-    else:
-        center = factor - 0.5
-        og = np.ogrid[:size, :size]
-        return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
-
-def bilinear_upsample_weights(factor, number_of_classes):
-    filter_size = factor*2 - factor%2
-    weights = np.zeros((filter_size, filter_size, number_of_classes, number_of_classes),
-                       dtype=np.float32)
-    upsample_kernel = upsample_filt(filter_size)
-    for i in range(number_of_classes):
-        weights[:, :, i, i] = upsample_kernel
-    return weights
-
 ############################################################
 #  Bounding Boxes
 ############################################################
@@ -462,7 +439,6 @@ def resize_mask(mask, scale, padding):
     padding: Padding to add to the mask in the form
             [(top, bottom), (left, right), (0, 0)]
     """
-    h, w = mask.shape[:2]
     mask = scipy.ndimage.zoom(mask, zoom=[scale, scale, 1], order=0)
     mask = np.pad(mask, padding, mode='constant', constant_values=0)
     return mask
@@ -477,19 +453,13 @@ def minimize_mask(bbox, mask, mini_shape):
     for i in range(mask.shape[-1]):
         m = mask[:, :, i]
         y1, x1, y2, x2 = bbox[i][:4]
-        #side = (x2 - x1) if (x2 - x1) > (y2 - y1) else (y2 - y1)
-        #m = m[y1:(y1 + side), x1:(x1 + side)]
         m = m[y1:y2, x1:x2]
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
-        m = resize(m, mini_shape)
         # _positon = np.argmax(m)  # get the index of max in the a
         # m_index, n_index = divmod(_positon, mini_shape[0])
         # print("Max in oringal:", (m_index, n_index), m[m_index, n_index])
         mini_mask[:, :, i] = np.where(m >= 128, 1, 0)
-    return mini_mask
-
-def expand_mask(bbox, mini_mask, image_shape):
     """Resizes mini masks back to image size. Reverses the change
     of minimize_mask().
 
@@ -507,7 +477,6 @@ def expand_mask(bbox, mini_mask, image_shape):
         # m_index, n_index = divmod(_positon, w)
         # print("Max in resize:", (m_index, n_index), m[m_index, n_index])
         mask[y1:y2, x1:x2, i] = np.where(m >= 128, 1, 0)
-
     return mask
 
 

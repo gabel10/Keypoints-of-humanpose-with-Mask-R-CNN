@@ -5,6 +5,7 @@ The main Mask R-CNN model implementation.
 Copyright (c) 2017 Matterport, Inc.
 Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
+Modified by Gabriel Zapata
 """
 
 import os
@@ -20,10 +21,14 @@ import tensorflow as tf
 import keras
 import keras.backend as K
 import keras.layers as KL
-import keras.initializers as KI
 import keras.engine as KE
 import keras.models as KM
-from PIL import Image
+from keras import initializers
+from keras import regularizers
+from keras import constraints
+#MobileNetV1 Imports
+from keras.utils import conv_utils
+from keras.engine import InputSpec
 
 import utils
 
@@ -32,10 +37,14 @@ from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
 
-
 ############################################################
 #  Utility Functions
 ############################################################
+def fullmatch(regex, string, flags=0):
+    """Emulate python-3.4 re.fullmatch()."""
+    m = re.match(regex, string, flags=flags)
+    if m and m.span()[1] == len(string):
+        return m
 
 def log(text, array=None):
     """Prints a text message. And, optionally, if a Numpy array is provided it
@@ -59,7 +68,7 @@ class BatchNorm(KL.BatchNormalization):
     so we disable it here.
     """
 
-    def call(self, inputs, training=None):
+    def call(self, inputs):
         return super(self.__class__, self).call(inputs, training=False)
 
 def compute_backbone_shapes(config, image_shape):
@@ -72,7 +81,7 @@ def compute_backbone_shapes(config, image_shape):
         return config.COMPUTE_BACKBONE_SHAPE(image_shape)
 
     # Currently supports ResNet only
-    assert config.BACKBONE in ["resnet50", "resnet101"]
+    assert config.BACKBONE in ["resnet50", "resnet101", "mobilenetv1", "mobilenetv2"]
     return np.array(
         [[int(math.ceil(image_shape[0] / stride)),
             int(math.ceil(image_shape[1] / stride))]
@@ -99,24 +108,20 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
-    x = KL.Conv2D(nb_filter1, (1, 1), name=conv_name_base + '2a',
-                  use_bias=use_bias)(input_tensor)
+    x = KL.Conv2D(nb_filter1, (1, 1), name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
     x = BatchNorm(axis=3, name=bn_name_base + '2a')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
-                  name=conv_name_base + '2b', use_bias=use_bias)(x)
+    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same', name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c',
-                  use_bias=use_bias)(x)
+    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c',use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
 
     x = KL.Add()([x, input_tensor])
     x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
     return x
-
 
 def conv_block(input_tensor, kernel_size, filters, stage, block,
                strides=(2, 2), use_bias=True):
@@ -134,28 +139,23 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
-    x = KL.Conv2D(nb_filter1, (1, 1), strides=strides,
-                  name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
+    x = KL.Conv2D(nb_filter1, (1, 1), strides=strides, name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
     x = BatchNorm(axis=3, name=bn_name_base + '2a')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
-                  name=conv_name_base + '2b', use_bias=use_bias)(x)
+    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same', name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
     x = KL.Activation('relu')(x)
 
-    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base +
-                  '2c', use_bias=use_bias)(x)
+    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
 
-    shortcut = KL.Conv2D(nb_filter3, (1, 1), strides=strides,
-                         name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
+    shortcut = KL.Conv2D(nb_filter3, (1, 1), strides=strides, name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
     shortcut = BatchNorm(axis=3, name=bn_name_base + '1')(shortcut)
 
     x = KL.Add()([x, shortcut])
     x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
     return x
-
 
 def resnet_graph(input_image, architecture, stage5=False):
     assert architecture in ["resnet50", "resnet101"]
@@ -189,6 +189,470 @@ def resnet_graph(input_image, architecture, stage5=False):
         C5 = None
     return [C1, C2, C3, C4, C5]
 
+############################################################
+#  Mobilenet V1 Graph
+############################################################
+
+# Code adopted from:
+# https://github.com/fchollet/deep-learning-models/blob/master/mobilenet.py
+
+def relu6(x):
+    return K.relu(x, max_value=6)
+
+def preprocess_input(x):
+    x /= 255.
+    x -= 0.5
+    x *= 2.
+    return x
+
+class DepthwiseConv2D(KL.Conv2D):
+    """Depthwise separable 2D convolution.
+    Depthwise Separable convolutions consists in performing
+    just the first step in a depthwise spatial convolution
+    (which acts on each input channel separately).
+    The `depth_multiplier` argument controls how many
+    output channels are generated per input channel in the depthwise step.
+    # Arguments
+        kernel_size: An integer or tuple/list of 2 integers, specifying the
+            width and height of the 2D convolution window.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+        strides: An integer or tuple/list of 2 integers,
+            specifying the strides of the convolution along the width and height.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+        padding: one of `"valid"` or `"same"` (case-insensitive).
+        depth_multiplier: The number of depthwise convolution output channels
+            for each input channel.
+            The total number of depthwise convolution output
+            channels will be equal to `filters_in * depth_multiplier`.
+        data_format: A string,
+            one of `channels_last` (default) or `channels_first`.
+            The ordering of the dimensions in the inputs.
+            `channels_last` corresponds to inputs with shape
+            `(batch, height, width, channels)` while `channels_first`
+            corresponds to inputs with shape
+            `(batch, channels, height, width)`.
+            It defaults to the `image_data_format` value found in your
+            Keras config file at `~/.keras/keras.json`.
+            If you never set it, then it will be "channels_last".
+        activation: Activation function to use
+            (see [activations](keras./activations.md)).
+            If you don't specify anything, no activation is applied
+            (ie. "linear" activation: `a(x) = x`).
+        use_bias: Boolean, whether the layer uses a bias vector.
+        depthwise_initializer: Initializer for the depthwise kernel matrix
+            (see [initializers](keras./initializers.md)).
+        bias_initializer: Initializer for the bias vector
+            (see [initializers](keras./initializers.md)).
+        depthwise_regularizer: Regularizer function applied to
+            the depthwise kernel matrix
+            (see [regularizer](keras./regularizers.md)).
+        bias_regularizer: Regularizer function applied to the bias vector
+            (see [regularizer](keras./regularizers.md)).
+        activity_regularizer: Regularizer function applied to
+            the output of the layer (its "activation").
+            (see [regularizer](keras./regularizers.md)).
+        depthwise_constraint: Constraint function applied to
+            the depthwise kernel matrix
+            (see [constraints](keras./constraints.md)).
+        bias_constraint: Constraint function applied to the bias vector
+            (see [constraints](keras./constraints.md)).
+    # Input shape
+        4D tensor with shape:
+        `[batch, channels, rows, cols]` if data_format='channels_first'
+        or 4D tensor with shape:
+        `[batch, rows, cols, channels]` if data_format='channels_last'.
+    # Output shape
+        4D tensor with shape:
+        `[batch, filters, new_rows, new_cols]` if data_format='channels_first'
+        or 4D tensor with shape:
+        `[batch, new_rows, new_cols, filters]` if data_format='channels_last'.
+        `rows` and `cols` values might have changed due to padding.
+    """
+
+    def __init__(self,
+                 kernel_size,
+                 strides=(1, 1),
+                 padding='valid',
+                 depth_multiplier=1,
+                 data_format=None,
+                 activation=None,
+                 use_bias=True,
+                 depthwise_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 depthwise_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 depthwise_constraint=None,
+                 bias_constraint=None,
+                 **kwargs):
+        super(DepthwiseConv2D, self).__init__(
+            filters=None,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=data_format,
+            activation=activation,
+            use_bias=use_bias,
+            bias_regularizer=bias_regularizer,
+            activity_regularizer=activity_regularizer,
+            bias_constraint=bias_constraint,
+            **kwargs)
+        self.depth_multiplier = depth_multiplier
+        self.depthwise_initializer = initializers.get(depthwise_initializer)
+        self.depthwise_regularizer = regularizers.get(depthwise_regularizer)
+        self.depthwise_constraint = constraints.get(depthwise_constraint)
+        self.bias_initializer = initializers.get(bias_initializer)
+
+    def build(self, input_shape):
+        if len(input_shape) < 4:
+            raise ValueError('Inputs to `DepthwiseConv2D` should have rank 4. '
+                             'Received input shape:', str(input_shape))
+        if self.data_format == 'channels_first':
+            channel_axis = 1
+        else:
+            channel_axis = 3
+        if input_shape[channel_axis] is None:
+            raise ValueError('The channel dimension of the inputs to '
+                             '`DepthwiseConv2D` '
+                             'should be defined. Found `None`.')
+        input_dim = int(input_shape[channel_axis])
+        depthwise_kernel_shape = (self.kernel_size[0],
+                                  self.kernel_size[1],
+                                  input_dim,
+                                  self.depth_multiplier)
+
+        self.depthwise_kernel = self.add_weight(
+            shape=depthwise_kernel_shape,
+            initializer=self.depthwise_initializer,
+            name='depthwise_kernel',
+            regularizer=self.depthwise_regularizer,
+            constraint=self.depthwise_constraint)
+
+        if self.use_bias:
+            self.bias = self.add_weight(shape=(input_dim * self.depth_multiplier,),
+                                        initializer=self.bias_initializer,
+                                        name='bias',
+                                        regularizer=self.bias_regularizer,
+                                        constraint=self.bias_constraint)
+        else:
+            self.bias = None
+        # Set input spec.
+        self.input_spec = InputSpec(ndim=4, axes={channel_axis: input_dim})
+        self.built = True
+
+    def call(self, inputs, training=None):
+        outputs = K.depthwise_conv2d(
+            inputs,
+            self.depthwise_kernel,
+            strides=self.strides,
+            padding=self.padding,
+            dilation_rate=self.dilation_rate,
+            data_format=self.data_format)
+
+        if self.bias:
+            outputs = K.bias_add(
+                outputs,
+                self.bias,
+                data_format=self.data_format)
+
+        if self.activation is not None:
+            return self.activation(outputs)
+
+        return outputs
+
+    def compute_output_shape(self, input_shape):
+        if self.data_format == 'channels_first':
+            rows = input_shape[2]
+            cols = input_shape[3]
+            out_filters = input_shape[1] * self.depth_multiplier
+        elif self.data_format == 'channels_last':
+            rows = input_shape[1]
+            cols = input_shape[2]
+            out_filters = input_shape[3] * self.depth_multiplier
+
+        rows = conv_utils.conv_output_length(rows, self.kernel_size[0],
+                                             self.padding,
+                                             self.strides[0])
+        cols = conv_utils.conv_output_length(cols, self.kernel_size[1],
+                                             self.padding,
+                                             self.strides[1])
+
+        if self.data_format == 'channels_first':
+            return (input_shape[0], out_filters, rows, cols)
+        elif self.data_format == 'channels_last':
+            return (input_shape[0], rows, cols, out_filters)
+
+    def get_config(self):
+        config = super(DepthwiseConv2D, self).get_config()
+        config.pop('filters')
+        config.pop('kernel_initializer')
+        config.pop('kernel_regularizer')
+        config.pop('kernel_constraint')
+        config['depth_multiplier'] = self.depth_multiplier
+        config['depthwise_initializer'] = initializers.serialize(self.depthwise_initializer)
+        config['depthwise_regularizer'] = regularizers.serialize(self.depthwise_regularizer)
+        config['depthwise_constraint'] = constraints.serialize(self.depthwise_constraint)
+        return config
+
+def _conv_block(inputs, filters, alpha, kernel=(3, 3), strides=(1, 1),block_id=1, train_bn=False):
+    """Adds an initial convolution layer (with batch normalization and relu6).
+    # Arguments
+        inputs: Input tensor of shape `(rows, cols, 3)`
+            (with `channels_last` data format) or
+            (3, rows, cols) (with `channels_first` data format).
+            It should have exactly 3 inputs channels,
+            and width and height should be no smaller than 32.
+            E.g. `(224, 224, 3)` would be one valid value.
+        filters: Integer, the dimensionality of the output space
+            (i.e. the number output of filters in the convolution).
+        alpha: controls the width of the network.
+            - If `alpha` < 1.0, proportionally decreases the number
+                of filters in each layer.
+            - If `alpha` > 1.0, proportionally increases the number
+                of filters in each layer.
+            - If `alpha` = 1, default number of filters from the paper
+                 are used at each layer.
+        kernel: An integer or tuple/list of 2 integers, specifying the
+            width and height of the 2D convolution window.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+        strides: An integer or tuple/list of 2 integers,
+            specifying the strides of the convolution along the width and height.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+    # Input shape
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if data_format='channels_last'.
+    # Output shape
+        4D tensor with shape:
+        `(samples, filters, new_rows, new_cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(samples, new_rows, new_cols, filters)` if data_format='channels_last'.
+        `rows` and `cols` values might have changed due to stride.
+    # Returns
+        Output tensor of block.
+    """
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+    filters = int(filters * alpha)
+    x = KL.Conv2D(filters, kernel,
+               padding='same',
+               use_bias=False,
+               strides=strides,
+               name='conv{}'.format(block_id))(inputs)
+    x = BatchNorm(axis=channel_axis, name='conv{}_bn'.format(block_id))(x, training = train_bn)
+    return KL.Activation(relu6, name='conv{}_relu'.format(block_id))(x)
+
+def _depthwise_conv_block(inputs, pointwise_conv_filters, alpha,
+                          depth_multiplier=1, strides=(1, 1), block_id=1, train_bn=False):
+    """Adds a depthwise convolution block.
+    A depthwise convolution block consists of a depthwise conv,
+    batch normalization, relu6, pointwise convolution,
+    batch normalization and relu6 activation.
+    # Arguments
+        inputs: Input tensor of shape `(rows, cols, channels)`
+            (with `channels_last` data format) or
+            (channels, rows, cols) (with `channels_first` data format).
+        pointwise_conv_filters: Integer, the dimensionality of the output space
+            (i.e. the number output of filters in the pointwise convolution).
+        alpha: controls the width of the network.
+            - If `alpha` < 1.0, proportionally decreases the number
+                of filters in each layer.
+            - If `alpha` > 1.0, proportionally increases the number
+                of filters in each layer.
+            - If `alpha` = 1, default number of filters from the paper
+                 are used at each layer.
+        depth_multiplier: The number of depthwise convolution output channels
+            for each input channel.
+            The total number of depthwise convolution output
+            channels will be equal to `filters_in * depth_multiplier`.
+        strides: An integer or tuple/list of 2 integers,
+            specifying the strides of the convolution along the width and height.
+            Can be a single integer to specify the same value for
+            all spatial dimensions.
+            Specifying any stride value != 1 is incompatible with specifying
+            any `dilation_rate` value != 1.
+        block_id: Integer, a unique identification designating the block number.
+    # Input shape
+        4D tensor with shape:
+        `(batch, channels, rows, cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(batch, rows, cols, channels)` if data_format='channels_last'.
+    # Output shape
+        4D tensor with shape:
+        `(batch, filters, new_rows, new_cols)` if data_format='channels_first'
+        or 4D tensor with shape:
+        `(batch, new_rows, new_cols, filters)` if data_format='channels_last'.
+        `rows` and `cols` values might have changed due to stride.
+    # Returns
+        Output tensor of block.
+    """
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+    pointwise_conv_filters = int(pointwise_conv_filters * alpha)
+    # Depthwise
+    x = DepthwiseConv2D((3, 3),
+                    padding='same',
+                    depth_multiplier=depth_multiplier,
+                    strides=strides,
+                    use_bias=False,
+                    name='conv_dw_{}'.format(block_id))(inputs)
+    x = BatchNorm(axis=channel_axis, name='conv_dw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = KL.Activation(relu6, name='conv_dw_{}_relu'.format(block_id))(x)
+    # Pointwise
+    x = KL.Conv2D(pointwise_conv_filters, (1, 1),
+                    padding='same',
+                    use_bias=False,
+                    strides=(1, 1),
+                    name='conv_pw_{}'.format(block_id))(x)
+    x = BatchNorm(axis=channel_axis, name='conv_pw_{}_bn'.format(block_id))(x, training=train_bn)
+    return KL.Activation(relu6, name='conv_pw_{}_relu'.format(block_id))(x)
+
+def mobilenetv1_graph(inputs, architecture, alpha=1.0, depth_multiplier=1, train_bn = False):
+    """MobileNetv1
+    This function defines a MobileNetv1 architectures.
+    # Arguments
+        inputs: Inuput Tensor, e.g. an image
+        architecture: to preserve consistency
+        alpha: Width Multiplier
+        depth_multiplier: Resolution Multiplier
+        train_bn: Boolean. Train or freeze Batch Norm layres
+    # Returns
+        five MobileNetv1 model stages.
+    """
+    assert architecture in ["mobilenetv1"]
+    # Stage 1
+    x      = _conv_block(inputs, 32, alpha, strides=(2, 2), block_id=0, train_bn=train_bn)              #Input Resolution: 224 x 224
+    C1 = x = _depthwise_conv_block(x, 64, alpha, depth_multiplier, block_id=1, train_bn=train_bn)       #Input Resolution: 112 x 112
+    # Stage 2
+    x      = _depthwise_conv_block(x, 128, alpha, depth_multiplier, strides=(2, 2), block_id=2, train_bn=train_bn)
+    C2 = x = _depthwise_conv_block(x, 128, alpha, depth_multiplier, block_id=3, train_bn=train_bn)      #Input Resolution: 56 x 56
+    # Stage 3
+    x      = _depthwise_conv_block(x, 256, alpha, depth_multiplier, strides=(2, 2), block_id=4, train_bn=train_bn)
+    C3 = x = _depthwise_conv_block(x, 256, alpha, depth_multiplier, block_id=5, train_bn=train_bn)      #Input Resolution: 28 x 28
+    # Stage 4
+    x      = _depthwise_conv_block(x, 512, alpha, depth_multiplier, strides=(2, 2), block_id=6, train_bn=train_bn)
+    x      = _depthwise_conv_block(x, 512, alpha, depth_multiplier, block_id=7, train_bn=train_bn)
+    x      = _depthwise_conv_block(x, 512, alpha, depth_multiplier, block_id=8, train_bn=train_bn)
+    x      = _depthwise_conv_block(x, 512, alpha, depth_multiplier, block_id=9, train_bn=train_bn)
+    x      = _depthwise_conv_block(x, 512, alpha, depth_multiplier, block_id=10, train_bn=train_bn)
+    C4 = x = _depthwise_conv_block(x, 512, alpha, depth_multiplier, block_id=11, train_bn=train_bn)     #Input Resolution: 14 x 14
+    # Stage 5
+    x      = _depthwise_conv_block(x, 1024, alpha, depth_multiplier, strides=(2, 2), block_id=12, train_bn=train_bn)
+    C5 = x = _depthwise_conv_block(x, 1024, alpha, depth_multiplier, block_id=13, train_bn=train_bn)    #Input Resolution: 7x7
+    return [C1, C2, C3, C4, C5]
+
+############################################################
+#  MobileNetV2 Graph
+############################################################
+
+# Code adpated from:
+# https://github.com/xiaochus/MobileNetV2/blob/master/mobilenet_v2.py
+
+"""MobileNet v2 models for Keras.
+# Reference
+- [Inverted Residuals and Linear Bottlenecks Mobile Networks for
+   Classification, Detection and Segmentation]
+   (https://arxiv.org/abs/1801.04381)
+"""
+
+def _bottleneck(inputs, filters, kernel, t, s, r=False, alpha=1.0, block_id=1, train_bn = False):
+    """Bottleneck
+    This function defines a basic bottleneck structure.
+    # Arguments
+        inputs: Tensor, input tensor of conv layer.
+        filters: Integer, the dimensionality of the output space.
+        kernel: An integer or tuple/list of 2 integers, specifying the
+            width and height of the 2D convolution window.
+        t: Integer, expansion factor.
+            t is always applied to the input size.
+        s: An integer or tuple/list of 2 integers,specifying the strides
+            of the convolution along the width and height.Can be a single
+            integer to specify the same value for all spatial dimensions.
+        r: Boolean, Whether to use the residuals.
+    # Returns
+        Output tensor.
+    """
+
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+    tchannel = K.int_shape(inputs)[channel_axis] * t
+    filters = int(alpha * filters)
+
+    x = _conv_block(inputs, tchannel, alpha, (1, 1), (1, 1),block_id=block_id,train_bn=train_bn)
+
+    x = KL.DepthwiseConv2D(kernel,
+                    strides=(s, s),
+                    depth_multiplier=1,
+                    padding='same',
+                    name='conv_dw_{}'.format(block_id))(x)
+    x = BatchNorm(axis=channel_axis,name='conv_dw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = KL.Activation(relu6, name='conv_dw_{}_relu'.format(block_id))(x)
+
+    x = KL.Conv2D(filters,
+                    (1, 1),
+                    strides=(1, 1),
+                    padding='same',
+                    name='conv_pw_{}'.format(block_id))(x)
+    x = BatchNorm(axis=channel_axis, name='conv_pw_{}_bn'.format(block_id))(x, training=train_bn)
+
+    if r:
+        x = KL.add([x, inputs], name='res{}'.format(block_id))
+    return x
+
+def _inverted_residual_block(inputs, filters, kernel, t, strides, n, alpha, block_id, train_bn):
+    """Inverted Residual Block
+    This function defines a sequence of 1 or more identical layers.
+    # Arguments
+        inputs: Tensor, input tensor of conv layer.
+        filters: Integer, the dimensionality of the output space.
+        kernel: An integer or tuple/list of 2 integers, specifying the
+            width and height of the 2D convolution window.
+        t: Integer, expansion factor.
+            t is always applied to the input size.
+        s: An integer or tuple/list of 2 integers,specifying the strides
+            of the convolution along the width and height.Can be a single
+            integer to specify the same value for all spatial dimensions.
+        n: Integer, layer repeat times.
+    # Returns
+        Output tensor.
+    """
+    x = _bottleneck(inputs, filters, kernel, t, strides, False, alpha, block_id, train_bn)
+
+    for i in range(1, n):
+        block_id += 1
+        x = _bottleneck(x, filters, kernel, t, 1, True, alpha, block_id, train_bn)
+
+    return x
+
+def mobilenetv2_graph(inputs, architecture, alpha = 1.0, train_bn = False):
+    """MobileNetv2
+    This function defines a MobileNetv2 architectures.
+    # Arguments
+        inputs: Inuput Tensor, e.g. an image
+        architecture: to preserve consistency
+        alpha: Width Multiplier
+        train_bn: Boolean. Train or freeze Batch Norm layres
+    # Returns
+        five MobileNetv2 model stages.
+    """
+    assert architecture in ["mobilenetv2"]
+
+    x      = _conv_block(inputs, 32, alpha, (3, 3), strides=(2, 2), block_id=0, train_bn=train_bn)                      # Input Res: 1
+    C1 = x = _inverted_residual_block(x, 16,  (3, 3), t=1, strides=1, n=1, alpha=1.0, block_id=1, train_bn=train_bn)	# Input Res: 1/2
+    C2 = x = _inverted_residual_block(x, 24,  (3, 3), t=6, strides=2, n=2, alpha=1.0, block_id=2, train_bn=train_bn)	# Input Res: 1/2
+    C3 = x = _inverted_residual_block(x, 32,  (3, 3), t=6, strides=2, n=3, alpha=1.0, block_id=4, train_bn=train_bn)	# Input Res: 1/4
+    x      = _inverted_residual_block(x, 64,  (3, 3), t=6, strides=2, n=4, alpha=1.0, block_id=7, train_bn=train_bn)	# Input Res: 1/8
+    C4 = x = _inverted_residual_block(x, 96,  (3, 3), t=6, strides=1, n=3, alpha=1.0, block_id=11, train_bn=train_bn)	# Input Res: 1/8
+    x      = _inverted_residual_block(x, 160, (3, 3), t=6, strides=2, n=3, alpha=1.0, block_id=14, train_bn=train_bn)	# Input Res: 1/16
+    C5 = x = _inverted_residual_block(x, 320, (3, 3), t=6, strides=1, n=1, alpha=1.0, block_id=17, train_bn=train_bn)	# Input Res: 1/32
+
+    return [C1,C2,C3,C4,C5]
 
 ############################################################
 #  Proposal Layer
@@ -217,7 +681,6 @@ def apply_box_deltas_graph(boxes, deltas):
     result = tf.stack([y1, x1, y2, x2], axis=1, name="apply_box_deltas_out")
     return result
 
-
 def clip_boxes_graph(boxes, window):
     """
     boxes: [N, 4] each row is y1, x1, y2, x2
@@ -234,7 +697,6 @@ def clip_boxes_graph(boxes, window):
     clipped = tf.concat([y1, x1, y2, x2], axis=1, name="clipped_boxes")
     clipped.set_shape((clipped.shape[0], 4))
     return clipped
-
 
 class ProposalLayer(KE.Layer):
     """Receives anchor scores and selects a subset to pass as proposals
@@ -330,7 +792,6 @@ class ProposalLayer(KE.Layer):
 def log2_graph(x):
     """Implementatin of Log2. TF doesn't have a native implemenation."""
     return tf.math.log(x) / tf.math.log(2.0)
-
 
 class PyramidROIAlign(KE.Layer):
     """Implements ROI Pooling on multiple levels of the feature pyramid.
@@ -435,7 +896,6 @@ class PyramidROIAlign(KE.Layer):
     def compute_output_shape(self, input_shape):
         return input_shape[0][:2] + self.pool_shape + (input_shape[1][-1], )
 
-
 ############################################################
 #  Detection Target Layer
 ############################################################
@@ -467,143 +927,6 @@ def overlaps_graph(boxes1, boxes2):
     iou = intersection / union
     overlaps = tf.reshape(iou, [tf.shape(boxes1)[0], tf.shape(boxes2)[0]])
     return overlaps
-
-
-def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config):
-    """Generates detection targets for one image. Subsamples proposals and
-    generates target class IDs, bounding box deltas, and masks for each.
-
-    Inputs:
-    proposals: [N, (y1, x1, y2, x2)] in normalized coordinates. Might
-               be zero padded if there are not enough proposals.
-    gt_class_ids: [MAX_GT_INSTANCES] int class IDs
-    gt_boxes: [MAX_GT_INSTANCES, (y1, x1, y2, x2)] in normalized coordinates.
-    gt_masks: [height, width, MAX_GT_INSTANCES] of boolean type.
-
-    Returns: Target ROIs and corresponding class IDs, bounding box shifts,
-    and masks.
-    rois: [TRAIN_ROIS_PER_IMAGE, (y1, x1, y2, x2)] in normalized coordinates
-    class_ids: [TRAIN_ROIS_PER_IMAGE]. Integer class IDs. Zero padded.
-    deltas: [TRAIN_ROIS_PER_IMAGE, NUM_CLASSES, (dy, dx, log(dh), log(dw))]
-            Class-specific bbox refinements.
-    masks: [TRAIN_ROIS_PER_IMAGE, height, width). Masks cropped to bbox
-           boundaries and resized to neural network output size.
-
-    Note: Returned arrays might be zero padded if not enough target ROIs.
-    """
-    # Assertions
-    asserts = [
-        tf.Assert(tf.greater(tf.shape(proposals)[0], 0), [proposals],
-                  name="roi_assertion"),
-    ]
-    with tf.control_dependencies(asserts):
-        proposals = tf.identity(proposals)
-
-    # Remove zero padding
-    proposals, _ = trim_zeros_graph(proposals, name="trim_proposals")
-    #non_zeros:[N_box,1] true false
-    gt_boxes, non_zeros = trim_zeros_graph(gt_boxes, name="trim_gt_boxes")
-    gt_class_ids = tf.boolean_mask(gt_class_ids, non_zeros,
-                                   name="trim_gt_class_ids")
-    gt_masks = tf.gather(gt_masks, tf.where(non_zeros)[:, 0], axis=2,
-                         name="trim_gt_masks")
-
-    # Handle COCO crowds
-    # A crowd box in COCO is a bounding box around several instances. Exclude
-    # them from training. A crowd box is given a negative class ID.
-    crowd_ix = tf.where(gt_class_ids < 0)[:, 0]
-    non_crowd_ix = tf.where(gt_class_ids > 0)[:, 0]
-    crowd_boxes = tf.gather(gt_boxes, crowd_ix)
-    crowd_masks = tf.gather(gt_masks, crowd_ix, axis=2)
-    gt_class_ids = tf.gather(gt_class_ids, non_crowd_ix)
-    gt_boxes = tf.gather(gt_boxes, non_crowd_ix)
-    gt_masks = tf.gather(gt_masks, non_crowd_ix, axis=2)
-
-    # Compute overlaps matrix [proposals, gt_boxes]
-    overlaps = overlaps_graph(proposals, gt_boxes)
-
-    # Compute overlaps with crowd boxes [anchors, crowds]
-    crowd_overlaps = overlaps_graph(proposals, crowd_boxes)
-    crowd_iou_max = tf.reduce_max(crowd_overlaps, axis=1)
-    no_crowd_bool = (crowd_iou_max < 0.001)
-
-    # Determine postive and negative ROIs
-    roi_iou_max = tf.reduce_max(overlaps, axis=1)
-    # 1. Positive ROIs are those with >= 0.5 IoU with a GT box
-    positive_roi_bool = (roi_iou_max >= 0.5)
-    positive_indices = tf.where(positive_roi_bool)[:, 0]
-    # 2. Negative ROIs are those with < 0.5 with every GT box. Skip crowds.
-    negative_indices = tf.where(tf.logical_and(roi_iou_max < 0.5, no_crowd_bool))[:, 0]
-
-    # Subsample ROIs. Aim for 33% positive
-    # Positive ROIs
-    positive_count = int(config.TRAIN_ROIS_PER_IMAGE *
-                         config.ROI_POSITIVE_RATIO)
-    positive_indices = tf.random.shuffle(positive_indices)[:positive_count]
-    positive_count = tf.shape(positive_indices)[0]
-    # Negative ROIs. Add enough to maintain positive:negative ratio.
-    r = 1.0 / config.ROI_POSITIVE_RATIO
-    negative_count = tf.cast(r * tf.cast(positive_count, tf.float32), tf.int32) - positive_count
-    negative_indices = tf.random.shuffle(negative_indices)[:negative_count]
-    # Gather selected ROIs
-    positive_rois = tf.gather(proposals, positive_indices)
-    negative_rois = tf.gather(proposals, negative_indices)
-
-    # Assign positive ROIs to GT boxes.
-    positive_overlaps = tf.gather(overlaps, positive_indices)
-    roi_gt_box_assignment = tf.argmax(positive_overlaps, axis=1)
-    roi_gt_boxes = tf.gather(gt_boxes, roi_gt_box_assignment)
-    roi_gt_class_ids = tf.gather(gt_class_ids, roi_gt_box_assignment)
-
-    # Compute bbox refinement for positive ROIs
-    deltas = utils.box_refinement_graph(positive_rois, roi_gt_boxes)
-    deltas /= config.BBOX_STD_DEV
-
-    # Assign positive ROIs to GT masks
-    # Permute masks to [N, height, width, 1]
-    transposed_masks = tf.expand_dims(tf.transpose(gt_masks, [2, 0, 1]), -1)
-    # Pick the right mask for each ROI
-    roi_masks = tf.gather(transposed_masks, roi_gt_box_assignment)
-
-    # Compute mask targets
-    boxes = positive_rois
-    if config.USE_MINI_MASK:
-        # Transform ROI corrdinates from normalized image space
-        # to normalized mini-mask space.
-        y1, x1, y2, x2 = tf.split(positive_rois, 4, axis=1)
-        gt_y1, gt_x1, gt_y2, gt_x2 = tf.split(roi_gt_boxes, 4, axis=1)
-        gt_h = gt_y2 - gt_y1
-        gt_w = gt_x2 - gt_x1
-        y1 = (y1 - gt_y1) / gt_h
-        x1 = (x1 - gt_x1) / gt_w
-        y2 = (y2 - gt_y1) / gt_h
-        x2 = (x2 - gt_x1) / gt_w
-        boxes = tf.concat([y1, x1, y2, x2], 1)
-    box_ids = tf.range(0, tf.shape(roi_masks)[0])
-    masks = tf.image.crop_and_resize(tf.cast(roi_masks, tf.float32), boxes,
-                                     box_ids,
-                                     config.MASK_SHAPE)
-    # Remove the extra dimension from masks.
-    masks = tf.squeeze(masks, axis=3)
-
-    # Threshold mask pixels at 0.5 to have GT masks be 0 or 1 to use with
-    # binary cross entropy loss.
-    masks = tf.round(masks)
-
-
-    # Append negative ROIs and pad bbox deltas and masks that
-    # are not used for negative ROIs with zeros.
-    rois = tf.concat([positive_rois, negative_rois], axis=0)
-    N = tf.shape(negative_rois)[0]
-    P = tf.maximum(config.TRAIN_ROIS_PER_IMAGE - tf.shape(rois)[0], 0)
-    rois = tf.pad(rois, [(0, P), (0, 0)])
-    roi_gt_boxes = tf.pad(roi_gt_boxes, [(0, N + P), (0, 0)])
-    roi_gt_class_ids = tf.pad(roi_gt_class_ids, [(0, N + P)])
-    deltas = tf.pad(deltas, [(0, N + P), (0, 0)])
-    masks = tf.pad(masks, [[0, N + P], (0, 0), (0, 0)])
-
-    return rois, roi_gt_class_ids, deltas, masks
-
 
 def detection_weight_targets_graph(proposals, gt_class_ids, gt_boxes, gt_bodyweight, gt_masks, config):
     """Generates detection targets for one image. Subsamples proposals and
@@ -735,8 +1058,6 @@ def detection_weight_targets_graph(proposals, gt_class_ids, gt_boxes, gt_bodywei
 
     return rois, roi_gt_class_ids, deltas, roi_gt_bodyweight, masks
 
-
-
 class DetectionWeightTargetLayer(KE.Layer):
     """Subsamples proposals and generates target box refinement, class_ids, bodyweights for each.
 
@@ -787,7 +1108,7 @@ class DetectionWeightTargetLayer(KE.Layer):
             (None, self.config.TRAIN_ROIS_PER_IMAGE, 4),  # rois
             (None, 1),  # class_ids
             (None, self.config.TRAIN_ROIS_PER_IMAGE, 4),  # deltas
-            (None, self.config.TRAIN_ROIS_PER_IMAGE) , # bodyweight 
+            (None, self.config.TRAIN_ROIS_PER_IMAGE), # bodyweight 
             (None, self.config.TRAIN_ROIS_PER_IMAGE, self.config.MASK_SHAPE[0],
              self.config.MASK_SHAPE[1])  # masks
         ]
@@ -806,7 +1127,6 @@ def clip_to_window(window, boxes):
     boxes[:, 2] = np.maximum(np.minimum(boxes[:, 2], window[2]), window[0])
     boxes[:, 3] = np.maximum(np.minimum(boxes[:, 3], window[3]), window[1])
     return boxes
-
 
 def refine_detections_graph(rois, probs, deltas, window, config):
     """Refine classified proposals and filter overlaps and return final
@@ -1022,15 +1342,12 @@ def refine_detections_bw_graph(rois, probs, deltas, window,config):
         #tf.gather(bodyweight_scores, keep)[..., tf.newaxis]
         ], axis=1)
 
-
     # Pad with zeros if detections < DETECTION_MAX_INSTANCES
     gap = config.DETECTION_MAX_INSTANCES - tf.shape(detections)[0]
     detections = tf.pad(detections, [(0, gap), (0, 0)], "CONSTANT")
 
     detections = tf.reshape(detections,[config.DETECTION_MAX_INSTANCES,6])
     return detections
-
-
 
 class DetectionLayer(KE.Layer):
     """Takes classified proposal boxes and their bounding box deltas and
@@ -1053,7 +1370,6 @@ class DetectionLayer(KE.Layer):
         mrcnn_class = inputs[1]
         mrcnn_bbox = inputs[2]
         image_meta = inputs[3]
-        #mrcnn_bw = inputs[4]
 
         # Run detection refinement graph on each item in the batch
         _, _, window, _ = parse_image_meta_graph(image_meta)
@@ -1069,9 +1385,9 @@ class DetectionLayer(KE.Layer):
     def compute_output_shape(self, input_shape):
         return (None, self.config.DETECTION_MAX_INSTANCES, 6)#detection
 
-
-
+############################################################
 # Region Proposal Network (RPN)
+############################################################
 
 def rpn_graph(feature_map, anchors_per_location, anchor_stride):
     """Builds the computation graph of Region Proposal Network.
@@ -1116,7 +1432,6 @@ def rpn_graph(feature_map, anchors_per_location, anchor_stride):
 
     return [rpn_class_logits, rpn_probs, rpn_bbox]
 
-
 def build_rpn_model(anchor_stride, anchors_per_location, depth):
     """Builds a Keras model of the Region Proposal Network.
     It wraps the RPN graph so it can be used multiple times with shared
@@ -1137,7 +1452,6 @@ def build_rpn_model(anchor_stride, anchors_per_location, depth):
                                  name="input_rpn_feature_map")
     outputs = rpn_graph(input_feature_map, anchors_per_location, anchor_stride)
     return KM.Model([input_feature_map], outputs, name="rpn_model")
-
 
 ############################################################
 #  Feature Pyramid Network Heads
@@ -1164,11 +1478,9 @@ def fpn_classifier_graph(rois, feature_maps,
     """
     # ROI Pooling
     # Shape: [batch, num_boxes, pool_height, pool_width, channels]
-    x = PyramidROIAlign([pool_size, pool_size], image_shape,
-                        name="roi_align_classifier")([rois] + feature_maps)
+    x = PyramidROIAlign([pool_size, pool_size], image_shape, name="roi_align_classifier")([rois] + feature_maps)
     # Two 1024 FC layers (implemented with Conv2D for consistency)
-    x = KL.TimeDistributed(KL.Conv2D(1024, (pool_size, pool_size), padding="valid"),
-                           name="mrcnn_class_conv1")(x)
+    x = KL.TimeDistributed(KL.Conv2D(1024, (pool_size, pool_size), padding="valid"), name="mrcnn_class_conv1")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_class_bn1')(x)
     x = KL.Activation('relu')(x)
     x = KL.TimeDistributed(KL.Conv2D(1024, (1, 1)),
@@ -1181,29 +1493,51 @@ def fpn_classifier_graph(rois, feature_maps,
                        name="pool_squeeze")(x)
 
     # Classifier head
-    mrcnn_class_logits = KL.TimeDistributed(KL.Dense(num_classes),
-                                            name='mrcnn_class_logits')(shared)
-    mrcnn_probs = KL.TimeDistributed(KL.Activation("softmax"),
-                                     name="mrcnn_class")(mrcnn_class_logits)
+    mrcnn_class_logits = KL.TimeDistributed(KL.Dense(num_classes), name='mrcnn_class_logits')(shared)
+    mrcnn_probs = KL.TimeDistributed(KL.Activation("softmax"), name="mrcnn_class")(mrcnn_class_logits)
 
     # BBox head
     # [batch, boxes, num_classes * (dy, dx, log(dh), log(dw))]
-    x = KL.TimeDistributed(KL.Dense(num_classes * 4, activation='linear'),
-                           name='mrcnn_bbox_fc')(shared)
+    x = KL.TimeDistributed(KL.Dense(num_classes * 4, activation='linear'), name='mrcnn_bbox_fc')(shared)
     # Reshape to [batch, boxes, num_classes, (dy, dx, log(dh), log(dw))]
     s = K.int_shape(x)
     mrcnn_bbox = KL.Reshape((s[1], num_classes, 4), name="mrcnn_bbox")(x)
 
-    # Bodyweight head
-    #x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_dense_bw')(shared)
-    #mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
-    #                                        name='mrcnn_bodyweight')(x)
-
-    #return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox, mrcnn_bodyweight
     return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox
 
-def build_fpn_mask_graph(rois, feature_maps,
-                         image_shape, pool_size, num_classes):
+def _timedistributed_depthwise_conv_block(inputs, pointwise_conv_filters, strides=(1, 1), block_id=1, train_bn=False):
+    """
+        Similiar to the _depthwise_conv_block used in the Backbone,
+        but with each layer wrapped in a TimeDistributed layer,
+        used to build the computation graph of the mask head of the FPN.
+    """
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+
+    # Depthwise
+    x = KL.TimeDistributed(DepthwiseConv2D(
+                    (3, 3),
+                    padding='same',
+                    depth_multiplier=1,
+                    strides=strides,
+                    use_bias=False),
+                    name='mrcnn_mask_conv_dw_{}'.format(block_id))(inputs)
+    x = KL.TimeDistributed(BatchNorm(axis=channel_axis),
+                    name='mrcnn_mask_conv_dw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = KL.Activation(relu6, name='mrcnn_mask_conv_dw_{}_relu'.format(block_id))(x)
+    # Pointwise
+    x = KL.TimeDistributed(KL.Conv2D(pointwise_conv_filters,
+                    (1, 1),
+                    padding='same',
+                    use_bias=False,
+                    strides=(1, 1)),
+                    name='mrcnn_mask_conv_pw_{}'.format(block_id))(x)
+    x = KL.TimeDistributed(BatchNorm(
+                    axis=channel_axis),
+                    name='mrcnn_mask_conv_pw_{}_bn'.format(block_id))(x, training=train_bn)
+    return KL.Activation(relu6, name='mrcnn_mask_conv_pw_{}_relu'.format(block_id))(x)
+
+def build_fpn_mask_bw_graph(rois, feature_maps,
+                         image_shape, pool_size, num_classes, backbone, train_bn=False):
     """Builds the computation graph of the mask head of Feature Pyramid Network.
 
     rois: [batch, num_rois, (y1, x1, y2, x2)] Proposal boxes in normalized
@@ -1217,114 +1551,212 @@ def build_fpn_mask_graph(rois, feature_maps,
 
     Returns: Masks [batch, roi_count, height, width, num_classes]
     """
+    assert backbone in ['resnet50', 'resnet101', 'mobilenetv1', 'mobilenetv2']
+    # ROI Pooling
+    # Shape: [batch, num_rois, pool_height, pool_width, channels]
+    x = PyramidROIAlign([pool_size, pool_size], image_shape,
+                        name="roi_align_mask")([rois] + feature_maps)
+    
+    if backbone in ['resnet50','resnet101']:
+        # Conv layers
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv1")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn1')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv2")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn2')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv3")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn3')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv4")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn4')(x)
+        shared = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), name="mrcnn_mask_deconv1")(shared)
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), name="mrcnn_mask_deconv2")(x)
+
+        mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"), name="mrcnn_mask")(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3,3), padding="same"), name="mrcnn_cbw_conv1")(shared)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name="mrcnn_cbw_bn1")(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
+        x = KL.TimeDistributed(KL.Dense(1024, activation='linear'), name='mrcnn_cbw_dense1')(x)
+
+        mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'), name='mrcnn_bodyweight')(x)
+    
+    if backbone in ['mobilenetv1', 'mobilenetv2']:
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, train_bn = train_bn)
+        shared = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, train_bn = train_bn)
+
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                            name="mrcnn_mask_deconv1")(shared)
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                            name="mrcnn_mask_deconv2")(x)
+        mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
+                           name="mrcnn_mask")(x)
+        
+        x = _timedistributed_depthwise_conv_block(shared, 256, block_id = 5, train_bn = train_bn)
+        x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
+        x = KL.TimeDistributed(KL.Dense(1024, activation='linear'), name='mrcnn_cbw_dense1')(x)
+        mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
+                                    name='mrcnn_bodyweight')(x)
+
+    return mrcnn_mask, mrcnn_bodyweight
+
+def build_fpn_mask_graph(rois, feature_maps,
+                         image_shape, pool_size, num_classes, backbone, train_bn=False):
+    """Builds the computation graph of the mask head of Feature Pyramid Network.
+
+    rois: [batch, num_rois, (y1, x1, y2, x2)] Proposal boxes in normalized
+          coordinates.
+    feature_maps: List of feature maps from diffent layers of the pyramid,
+                  [P2, P3, P4, P5]. Each has a different resolution.
+    image_shape: [height, width, depth]
+    pool_size: The width of the square feature map generated from ROI Pooling.
+    num_classes: number of classes, which determines the depth of the results
+                For keypoint_mask, it's num_keypoints
+
+    Returns: Masks [batch, roi_count, height, width, num_classes]
+    """
+    assert backbone in ['resnet50', 'resnet101', 'mobilenetv1', 'mobilenetv2']
+    # ROI Pooling
+    # Shape: [batch, num_rois, pool_height, pool_width, channels]
+    x = PyramidROIAlign([pool_size, pool_size], image_shape,
+                        name="roi_align_mask")([rois] + feature_maps)
+    
+    if backbone in ['resnet50','resnet101']:
+        # Conv layers
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv1")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn1')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv2")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn2')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv3")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn3')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_mask_conv4")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_mask_bn4')(x)
+        x = KL.Activation('relu')(x)
+
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), name="mrcnn_mask_deconv1")(x)
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), name="mrcnn_mask_deconv2")(x)
+
+        mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"), name="mrcnn_mask")(x)
+    
+    if backbone in ['mobilenetv1', 'mobilenetv2']:
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, train_bn = train_bn)
+        shared = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, train_bn = train_bn)
+
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                            name="mrcnn_mask_deconv1")(shared)
+        x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                            name="mrcnn_mask_deconv2")(x)
+        mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
+                           name="mrcnn_mask")(x)
+
+    return mrcnn_mask
+
+def _kytimedistributed_depthwise_conv_block(inputs, pointwise_conv_filters, strides=(1, 1), block_id=1, train_bn=False):
+    
+    """
+    #Similiar to the _depthwise_conv_block used in the Backbone,
+    #but with each layer wrapped in a TimeDistributed layer,
+    #used to build the computation graph of the mask head of the FPN.
+    """
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+    #channel_axis = 3
+
+    # Depthwise
+    x = KL.TimeDistributed(DepthwiseConv2D(
+                    (3, 3),
+                    padding='same',
+                    depth_multiplier=1,
+                    strides=strides,
+                    use_bias=False),
+                    name='mrcnn_mask_conv__kydw_{}'.format(block_id))(inputs)
+    x = KL.TimeDistributed(BatchNorm(axis=channel_axis),
+                    name='mrcnn_mask_conv_kydw_{}_bn'.format(block_id))(x, training=train_bn)
+    x = KL.Activation(relu6, name='mrcnn_mask_conv_kydw_{}_relu'.format(block_id))(x)
+    # Pointwise
+    x = KL.TimeDistributed(KL.Conv2D(pointwise_conv_filters,
+                    (1, 1),
+                    padding='same',
+                    use_bias=False,
+                    strides=(1, 1)),
+                    name='mrcnn_mask_conv_kypw_{}'.format(block_id))(x)
+    x = KL.TimeDistributed(BatchNorm(
+                    axis=channel_axis),
+                    name='mrcnn_mask_conv_kypw_{}_bn'.format(block_id))(x, training=train_bn)
+    return KL.Activation(relu6, name='mrcnn_mask_conv_kypw_{}_relu'.format(block_id))(x)
+
+def build_fpn_bodyweight_graph(rois, feature_maps,
+                         image_shape, pool_size, num_classes, backbone, train_bn=False):
+    """Builds the computation graph of the mask head of Feature Pyramid Network.
+
+    rois: [batch, num_rois, (y1, x1, y2, x2)] Proposal boxes in normalized
+          coordinates.
+    feature_maps: List of feature maps from diffent layers of the pyramid,
+                  [P2, P3, P4, P5]. Each has a different resolution.
+    image_shape: [height, width, depth]
+    pool_size: The width of the square feature map generated from ROI Pooling.
+    num_classes: number of classes, which determines the depth of the results
+                For keypoint_mask, it's num_keypoints
+
+    Returns: Masks [batch, roi_count, height, width, num_classes]
+    """
+    assert backbone in ['resnet50', 'resnet101', 'mobilenetv1', 'mobilenetv2']
     # ROI Pooling
     # Shape: [batch, num_rois, pool_height, pool_width, channels]
     x = PyramidROIAlign([pool_size, pool_size], image_shape,
                         name="roi_align_mask")([rois] + feature_maps)
 
-    # Conv layers
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_mask_conv1")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_mask_bn1')(x)
-    x = KL.Activation('relu')(x)
+    if backbone in ['resnet50','resnet101']:
+        # Conv layers
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_bw_conv1")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_bw_bn1')(x)
+        x = KL.Activation('relu')(x)
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_bw_conv2")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_bw_bn2')(x)
+        x = KL.Activation('relu')(x)
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_bw_conv3")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_bw_bn3')(x)
+        x = KL.Activation('relu')(x)
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_bw_conv4")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_bw_bn3')(x)
+        x = KL.Activation('relu')(x)
+        x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"), name="mrcnn_bw_conv5")(x)
+        x = KL.TimeDistributed(BatchNorm(axis=3), name='mrcnn_bw_bn5')(x)
+        x = KL.Activation('relu')(x)
 
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_mask_conv2")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_mask_bn2')(x)
-    x = KL.Activation('relu')(x)
+        x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
+        x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense')(x)
 
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_mask_conv3")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_mask_bn3')(x)
-    x = KL.Activation('relu')(x)
+        mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'), name='mrcnn_bodyweight')(x)
 
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_mask_conv4")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_mask_bn4')(x)
-    shared = KL.Activation('relu')(x)
+    if backbone in ['mobilenetv1', 'mobilenetv2']:
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 5, train_bn = train_bn)
 
-    x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
-                           name="mrcnn_mask_deconv1")(shared)
-    x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
-                       name="mrcnn_mask_deconv2")(x)
-    mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
-                           name="mrcnn_mask")(x)
-
-    x = KL.TimeDistributed(KL.Conv2D(256, (3,3), padding="same"),
-                            name="mrcnn_cbw_conv1")(shared)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                            name="mrcnn_cbw_bn1")(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
-    x = KL.TimeDistributed(KL.Dense(1024, activation='linear'), name='mrcnn_cbw_dense1')(x)
-    #x = KL.TimeDistributed(KL.Dense(512, activation='relu'), name='mrcnn_cbw_dense2')(x)
-    #x = KL.TimeDistributed(KL.Dense(256, activation='relu'), name='mrcnn_cbw_dense3')(x)
-    mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
-                                            name='mrcnn_bodyweight')(x)
-    return mrcnn_mask, mrcnn_bodyweight
-
-def build_fpn_bodyweight_graph(rois, feature_maps,
-                         image_shape, pool_size, num_classes):
-    """Builds the computation graph of the mask head of Feature Pyramid Network.
-
-    rois: [batch, num_rois, (y1, x1, y2, x2)] Proposal boxes in normalized
-          coordinates.
-    feature_maps: List of feature maps from diffent layers of the pyramid,
-                  [P2, P3, P4, P5]. Each has a different resolution.
-    image_shape: [height, width, depth]
-    pool_size: The width of the square feature map generated from ROI Pooling.
-    num_classes: number of classes, which determines the depth of the results
-                For keypoint_mask, it's num_keypoints
-
-    Returns: Masks [batch, roi_count, height, width, num_classes]
-    """
-    # ROI Pooling
-    # Shape: [batch, num_rois, pool_height, pool_width, channels]
-    x = PyramidROIAlign([pool_size, pool_size], image_shape,
-                        name="roi_align_bw")([rois] + feature_maps)
-
-    # Conv layers
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_bw_conv1")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_bw_bn1')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_bw_conv2")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_bw_bn2')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_bw_conv3")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_bw_bn3')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_bw_conv4")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_bw_bn4')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_bw_conv5")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_bw_bn5')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')(x)
-    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense1')(x)
-    x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense2')(x)
-    mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
-                                            name='mrcnn_bodyweight')(x)
-    
+        x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')(x)
+        x = KL.TimeDistributed(KL.Dense(256, activation='linear'), name='mrcnn_bw_dense')(x)
+        mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
+                                        name='mrcnn_bodyweight')(x)
     return mrcnn_bodyweight
 
 ############################################################
@@ -1339,7 +1771,6 @@ def smooth_l1_loss(y_true, y_pred):
     less_than_one = K.cast(K.less(diff, 1.0), "float32")
     loss = (less_than_one * 0.5 * diff**2) + (1 - less_than_one) * (diff - 0.5)
     return loss
-
 
 def rpn_class_loss_graph(rpn_match, rpn_class_logits):
     """RPN anchor classifier loss.
@@ -1364,7 +1795,6 @@ def rpn_class_loss_graph(rpn_match, rpn_class_logits):
                                              from_logits=True)
     loss = K.switch(tf.size(loss) > 0, K.mean(loss), tf.constant(0.0))
     return loss
-
 
 def rpn_bbox_loss_graph(config, target_bbox, rpn_match, rpn_bbox):
     """Return the RPN bounding box loss graph.
@@ -1397,7 +1827,6 @@ def rpn_bbox_loss_graph(config, target_bbox, rpn_match, rpn_bbox):
 
     loss = K.switch(tf.size(loss) > 0, K.mean(loss), tf.constant(0.0))
     return loss
-
 
 def mrcnn_class_loss_graph(target_class_ids, pred_class_logits,
                            active_class_ids):
@@ -1455,10 +1884,7 @@ def mrcnn_bodyweight_loss_graph(target_bodyweight, active_class_ids, pred_bodywe
     # Gather the deltas (predicted and true) that contribute to loss
     target_bodyweight = tf.gather(target_bodyweight, positive_roi_ix)
     pred_bodyweight = tf.gather_nd(pred_bodyweight, indices)
-    # Smooth-L1 Loss
-    """ loss = K.switch(tf.size(target_bodyweight) > 0, """
-    """                 smooth_l1_loss(y_true=target_bodyweight, y_pred=pred_bodyweight), """
-    """                 tf.constant(0.0)) """
+    # MAE loss
     loss = K.switch(tf.size(target_bodyweight) > 0,
                        tf.keras.losses.mean_absolute_error(target_bodyweight, pred_bodyweight),
                        tf.constant(0.0))
@@ -1496,7 +1922,6 @@ def mrcnn_bbox_loss_graph(target_bbox, target_class_ids, pred_bbox):
     loss = K.mean(loss)
     loss = K.reshape(loss, [1, 1])
     return loss
-
 
 def mrcnn_mask_loss_graph(target_masks, target_class_ids, pred_masks):
     """Mask binary cross-entropy loss for the masks head.
@@ -1570,11 +1995,8 @@ def load_image_gt(dataset, config, image_id, augment=True,
     """
     # Load image and mask
     image = dataset.load_image(image_id)
-    # mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
     mask, weight, class_ids = dataset.load_mask(image_id)
-    #weight = dataset.load_weight(image_id)
-    #assert (config.NUM_KEYPOINTS == keypoints.shape[1])
 
     image, window, scale, padding = utils.resize_image(
         image,
@@ -1582,10 +2004,8 @@ def load_image_gt(dataset, config, image_id, augment=True,
         max_dim=config.IMAGE_MAX_DIM,
         padding=config.IMAGE_PADDING)
     mask = utils.resize_mask(mask, scale, padding)
-    #keypoints = utils.resize_keypoints(keypoints, image.shape[:2], scale, padding)
 
     # Random horizontal flips.
-
     if augment:
         if random.randint(0, 1):
             image = np.fliplr(image)
@@ -1599,7 +2019,6 @@ def load_image_gt(dataset, config, image_id, augment=True,
     # print("mask shape:",np.shape(mask))
     # print("keypoint mask shape:",np.shape(keypoint_mask))
     bbox = utils.extract_bboxes(mask)
-
 
     # Active classes
     # Different datasets have different classes, so track the
@@ -1615,16 +2034,13 @@ def load_image_gt(dataset, config, image_id, augment=True,
     if use_mini_mask:
         mask = utils.minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
 
-
     # Image meta data
     #image_meta:image_id,image_shape,windows.active_class_ids
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-
     return image, image_meta, class_ids, bbox, mask, weight
 
-
-def load_image_gt_keypoints(dataset, config, image_id, augment=True,
+def load_image_gt_bw(dataset, config, image_id, augment=True,
                   use_mini_mask=False):
     """Load and return ground truth data for an image (image, keypoint_mask, keypoint_weight, mask, bounding boxes).
 
@@ -1651,11 +2067,8 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
     """
     # Load image and mask
     image = dataset.load_image(image_id)
-    # mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
     mask, weight, class_ids = dataset.load_mask(image_id)
-    #weight = dataset.load_weight(image_id)
-    #assert (config.NUM_KEYPOINTS == keypoints.shape[1])
 
     image, window, scale, padding = utils.resize_image(
         image,
@@ -1663,31 +2076,20 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
         max_dim=config.IMAGE_MAX_DIM,
         padding=config.IMAGE_PADDING)
     mask = utils.resize_mask(mask, scale, padding)
-    #keypoints = utils.resize_keypoints(keypoints, image.shape[:2], scale, padding)
 
     # Random horizontal flips.
-
     if augment:
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-            #keypoint_names,keypoint_flip_map = utils.get_keypoints()
-            #keypoints = utils.flip_keypoints(keypoint_names,keypoint_flip_map,keypoints, image.shape[1])
 
-    # Bounding boxes. Note that some boxes might be all zeros
-    # if the corresponding mask got cropped out.
-    # bbox: [num_instances, (y1, x1, y2, x2)]
-    # print("mask shape:",np.shape(mask))
-    # print("keypoint mask shape:",np.shape(keypoint_mask))
     bbox = utils.extract_bboxes(mask)
-
 
     # Active classes
     # Different datasets have different classes, so track the
     # classes supported in the dataset of this image.
     active_class_ids = np.zeros([dataset.num_classes], dtype=np.int32)
     #all the class ids in the source
-    # in keypoint detection task, source_class_ids = [0,1]
     source_class_ids = dataset.source_class_ids[dataset.image_info[image_id]["source"]]
     active_class_ids[source_class_ids] = 1
 
@@ -1696,15 +2098,11 @@ def load_image_gt_keypoints(dataset, config, image_id, augment=True,
     if use_mini_mask:
         mask = utils.minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
 
-
     # Image meta data
     #image_meta:image_id,image_shape,windows.active_class_ids
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-
     return image, image_meta, class_ids, bbox, mask, weight
-
-
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
     """Generate targets for training Stage 2 classifier and mask heads.
@@ -1863,7 +2261,6 @@ def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
         masks[i, :, :, class_id] = mask
 
     return rois, roi_gt_class_ids, bboxes, masks
-
 
 def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     """Given the anchors and GT boxes, compute overlaps and identify positive
@@ -2049,7 +2446,6 @@ def generate_random_rois(image_shape, count, gt_class_ids, gt_boxes):
     rois[-remaining_count:] = global_rois
     return rois
 
-
 def data_generator_bodyweight(dataset, config, shuffle=True, augment=True, random_rois=0,
                    batch_size=1, detection_targets=False):
     """A generator that returns images and corresponding target class ids,
@@ -2116,9 +2512,7 @@ def data_generator_bodyweight(dataset, config, shuffle=True, augment=True, rando
             image_id = image_ids[image_index]
             #image_meta:image_id,image_shape,windows.active_class_ids
             image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_bodyweight = \
-                load_image_gt_keypoints(dataset, config, image_id, augment, use_mini_mask=config.USE_MINI_MASK)
-
-            #Num_keypoint = np.shape(gt_keypoints)[1]
+                load_image_gt_bw(dataset, config, image_id, augment, use_mini_mask=config.USE_MINI_MASK)
 
             # Skip images that have no instances. This can happen in cases
             # where we train on a subset of classes and the image doesn't
@@ -2157,14 +2551,12 @@ def data_generator_bodyweight(dataset, config, shuffle=True, augment=True, rando
                     (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
                 batch_gt_boxes = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
-
                 batch_gt_bodyweights = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES), dtype=np.float32)
 
                 if config.USE_MINI_MASK:
                     batch_gt_masks = np.zeros((batch_size, config.MINI_MASK_SHAPE[0], config.MINI_MASK_SHAPE[1],
                                                config.MAX_GT_INSTANCES))
-
                 else:
                     batch_gt_masks = np.zeros(
                         (batch_size, image.shape[0], image.shape[1], config.MAX_GT_INSTANCES))
@@ -2191,8 +2583,6 @@ def data_generator_bodyweight(dataset, config, shuffle=True, augment=True, rando
                 gt_boxes = gt_boxes[ids]
                 gt_masks = gt_masks[:, :, ids]
                 gt_bodyweight = gt_bodyweight[ids]
-                #gt_keypoints = gt_keypoints[ids,:]
-
 
             # Add to batch
             batch_image_meta[b] = image_meta
@@ -2203,7 +2593,6 @@ def data_generator_bodyweight(dataset, config, shuffle=True, augment=True, rando
             batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
             batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
             batch_gt_bodyweights[b, :gt_bodyweight.shape[0]] = gt_bodyweight
-            #batch_gt_keypoints[b, :gt_keypoints.shape[0], :,:] = gt_keypoints
             #Not implemented for keypoint_mask and no need here.
             if random_rois:
                 batch_rpn_rois[b] = rpn_rois
@@ -2309,7 +2698,7 @@ class MaskRCNN():
             image_scale = K.cast(K.stack([h, w, h, w], axis=0), tf.float32)
             gt_boxes = KL.Lambda(lambda x: x / image_scale,name="gt_boxes")(input_gt_boxes)
             # 3. GT Body Weights of cuys
-            body_weight_scale = K.cast(K.stack([4000], axis=0), tf.float32)
+            body_weight_scale = K.cast(K.stack([2500], axis=0), tf.float32)
             input_gt_bodyweight = KL.Input(
                 shape=[None], name="input_weight", dtype=tf.float32)
             gt_bodyweight = KL.Lambda(lambda x: x / body_weight_scale, name="gt_weight")(input_gt_bodyweight)
@@ -2330,7 +2719,12 @@ class MaskRCNN():
         # Bottom-up Layers
         # Returns a list of the last layers of each stage, 5 in total.
         # Don't create the thead (stage 5), so we pick the 4th item in the list.
-        _, C2, C3, C4, C5 = resnet_graph(input_image, "resnet101", stage5=True)
+        if config.BACKBONE in ['resnet50', 'resnet101']:
+            _, C2, C3, C4, C5 = resnet_graph(input_image, config.BACKBONE, stage5=True, train_bn=config.TRAIN_BN)
+        elif config.BACKBONE in ["mobilenetv1"]:
+            _, C2, C3, C4, C5 = mobilenetv1_graph(input_image, config.BACKBONE, alpha=1.0, train_bn=config.TRAIN_BN)
+        elif config.BACKBONE in ["mobilenetv2"]:
+            _, C2, C3, C4, C5 = mobilenetv2_graph(input_image, config.BACKBONE, alpha=1.0, train_bn=config.TRAIN_BN)
         # Top-down Layers
         # TODO: add assert to varify feature map sizes match what's in config
         P5 = KL.Conv2D(256, (1, 1), name='fpn_c5p5')(C5)
@@ -2362,7 +2756,6 @@ class MaskRCNN():
                                                       config.BACKBONE_SHAPES,
                                                       config.BACKBONE_STRIDES,
                                                       config.RPN_ANCHOR_STRIDE)
-
         # RPN Model
         rpn = build_rpn_model(config.RPN_ANCHOR_STRIDE,
                               len(config.RPN_ANCHOR_RATIOS), 256)
@@ -2393,8 +2786,7 @@ class MaskRCNN():
                                  config=config)([rpn_class, rpn_bbox])
 
         if mode == "training":
-            # Class ID mask to mark class IDs supported by the dataset the image
-            # came from.
+            # Class ID mask to mark class IDs supported by the dataset the image came from.
             _, _, _, active_class_ids = KL.Lambda(lambda x: parse_image_meta_graph(x),
                                                   mask=[None, None, None, None])(input_image_meta)
 
@@ -2427,32 +2819,30 @@ class MaskRCNN():
 
             # Network Heads
             # TODO: verify that this handles zero padded ROIs
-            """mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_bodyweight =\
-                fpn_classifier_graph(rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
-                                     config.POOL_SIZE, config.NUM_CLASSES)"""
 
             mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
                 fpn_classifier_graph(rois, mrcnn_feature_maps, config.IMAGE_SHAPE,
                                      config.POOL_SIZE, config.NUM_CLASSES)
 
-            mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(rois, mrcnn_feature_maps,
+            mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_bw_graph(rois, mrcnn_feature_maps,
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
-                                              config.NUM_CLASSES)
+                                              config.NUM_CLASSES,
+                                              config.BACKBONE)
 
+            #mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(rois, mrcnn_feature_maps,
+            #                                 config.IMAGE_SHAPE,
+            #                                 config.MASK_POOL_SIZE,
+            #                                 config.NUM_CLASSES,
+            #                                 config.BACKBONE)
             #mrcnn_bodyweight = build_fpn_bodyweight_graph(rois, mrcnn_feature_maps,
             #                                  config.IMAGE_SHAPE,
             #                                  config.MASK_POOL_SIZE,
             #                                  config.NUM_CLASSES)
 
-            """ keypoint_mrcnn_mask = build_fpn_keypoint_graph(rois, mrcnn_feature_maps, """
-            """                                   config.IMAGE_SHAPE, """
-            """                                   config.KEYPOINT_MASK_POOL_SIZE, """
-            """                                   config.NUM_KEYPOINTS) """
 
             # TODO: clean up (use tf.identify if necessary)
             output_rois = KL.Lambda(lambda x: x * 1, name="output_rois")(rois)
-            # keypoint_mrcnn_mask = KL.Lambda(lambda x: x * 1, name="keypoint_mrcnn_mask")(keypoint_mrcnn_mask)
 
             # Losses
             rpn_class_loss = KL.Lambda(lambda x: rpn_class_loss_graph(*x), name="rpn_class_loss")(
@@ -2463,10 +2853,9 @@ class MaskRCNN():
                 [target_class_ids, mrcnn_class_logits, active_class_ids])
             bbox_loss = KL.Lambda(lambda x: mrcnn_bbox_loss_graph(*x), name="mrcnn_bbox_loss")(
                 [target_bbox, target_class_ids, mrcnn_bbox])
-            mask_loss = KL.Lambda(lambda x: mrcnn_mask_loss_graph(*x),
-                                           name="mrcnn_mask_loss")(
+            mask_loss = KL.Lambda(lambda x: mrcnn_mask_loss_graph(*x), name="mrcnn_mask_loss")(
                 [target_mask, target_class_ids, mrcnn_mask])
-            bodyweight_loss = KL.Lambda(lambda x: mrcnn_bodyweight_loss_graph(*x), name="bodyweight_mrcnn_mask_loss")(
+            bodyweight_loss = KL.Lambda(lambda x: mrcnn_bodyweight_loss_graph(*x), name="mrcnn_bodyweight_loss")(
                 [target_bodyweight, target_class_ids, mrcnn_bodyweight])
 
             # Model generated
@@ -2494,7 +2883,6 @@ class MaskRCNN():
             # Detections
             # output is
             #   detections: [batch, num_detections, (y1, x1, y2, x2, class_id, score)] in image coordinates
-            #   keypoint_weights: [batch, num_detections, num_keypoints]
             detections = DetectionLayer(config, name="mrcnn_detection")(
                 [rpn_rois, mrcnn_class, mrcnn_bbox,input_image_meta])
 
@@ -2506,19 +2894,21 @@ class MaskRCNN():
                 lambda x: x[..., :4] / np.array([h, w, h, w]))(detections)
 
             # Create masks for detections
-            mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(detection_boxes, mrcnn_feature_maps,
+            mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_bw_graph(detection_boxes, mrcnn_feature_maps,
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
-                                              config.NUM_CLASSES)
+                                              config.NUM_CLASSES,
+                                              config.BACKBONE)
 
-            #mrcnn_bodyweight = build_fpn_bodyweight_graph(detection_boxes, mrcnn_feature_maps,
-            #                      config.IMAGE_SHAPE,
-            #                      config.MASK_POOL_SIZE,
-            #                      config.NUM_CLASSES)
-            """ keypoint_mrcnn = build_fpn_keypoint_graph(detection_boxes, mrcnn_feature_maps, """
-            """                                                config.IMAGE_SHAPE, """
-            """                                                config.KEYPOINT_MASK_POOL_SIZE, """
-            """                                                config.NUM_KEYPOINTS) """
+            #mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(rois, mrcnn_feature_maps,
+            #                                 config.IMAGE_SHAPE,
+            #                                 config.MASK_POOL_SIZE,
+            #                                 config.NUM_CLASSES,
+            #                                 config.BACKBONE)
+            #mrcnn_bodyweight = build_fpn_bodyweight_graph(rois, mrcnn_feature_maps,
+            #                                  config.IMAGE_SHAPE,
+            #                                  config.MASK_POOL_SIZE,
+            #                                  config.NUM_CLASSES)
 
             model = KM.Model([input_image, input_image_meta],
                              [detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_bodyweight],
@@ -2608,13 +2998,33 @@ class MaskRCNN():
         Returns path to weights file.
         """
         from keras.utils.data_utils import get_file
-        TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
-                                 'releases/download/v0.2/'\
-                                 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
-        weights_path = get_file('resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
-                                TF_WEIGHTS_PATH_NO_TOP,
-                                cache_subdir='models',
-                                md5_hash='a268eb855778b3df3c7506639542a6af')
+        no_top=True
+        if no_top:
+            if self.config.BACKBONE == "resnet50":
+                TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
+                                         'releases/download/v0.2/'\
+                                         'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+                weights_path = get_file('resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+                                        TF_WEIGHTS_PATH_NO_TOP,
+                                        cache_subdir='models',
+                                        md5_hash='a268eb855778b3df3c7506639542a6af')
+            elif self.config.BACKBONE == "mobilenetv1":
+                TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
+                                         'releases/download/v0.6/'\
+                                         'mobilenet_1_0_224_tf_no_top.h5'
+                weights_path = get_file('mobilenet_1_0_224_tf_no_top.h5',
+                                        TF_WEIGHTS_PATH_NO_TOP,
+                                        cache_subdir='models',
+                                        md5_hash='725ccbd03d61d7ced5b5c4cd17e7d527')
+        else:
+            if self.config.BACKBONE == "mobilenetv1":
+                TF_WEIGHTS_PATH  = 'https://github.com/fchollet/deep-learning-models/'\
+                                         'releases/download/v0.6/'\
+                                         'mobilenet_1_0_224_tf.h5'
+                weights_path = get_file('mobilenet_1_0_224_tf.h5',
+                                        TF_WEIGHTS_PATH,
+                                        cache_subdir='models',
+                                        md5_hash='03394917f9a9ea3362f46332a5b6a215')
         return weights_path
 
     def compile(self, learning_rate, momentum):
@@ -2629,7 +3039,7 @@ class MaskRCNN():
         self.keras_model._losses = []
         self.keras_model._per_input_losses = {}
         loss_names = ["rpn_class_loss", "rpn_bbox_loss",
-                      "mrcnn_class_loss", "mrcnn_bbox_loss", "bodyweight_mrcnn_mask_loss", "mrcnn_mask_loss"]
+                      "mrcnn_class_loss", "mrcnn_bbox_loss", "mrcnn_bodyweight_loss", "mrcnn_mask_loss"]
         for name in loss_names:
             layer = self.keras_model.get_layer(name)
             if layer.output in self.keras_model.losses:
@@ -2723,7 +3133,7 @@ class MaskRCNN():
             self.config.NAME.lower(), now))
 
         # Path to save after each epoch. Include placeholders that get filled by Keras.
-        self.checkpoint_path = os.path.join(self.log_dir, "mask_rcnn_{}_*epoch*.h5".format(
+        self.checkpoint_path = os.path.join(self.log_dir, "weight_mask_rcnn_{}_*epoch*.h5".format(
             self.config.NAME.lower()))
         self.checkpoint_path = self.checkpoint_path.replace(
             "*epoch*", "{epoch:04d}")
@@ -2751,17 +3161,31 @@ class MaskRCNN():
         layer_regex = {
             # all layers but the backbone
             "heads": r"(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            # From a specific Resnet stage and up
-            "3+": r"(res3.*)|(bn3.*)|(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            "4+": r"(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            "5+": r"(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
             # All layers
             "all": ".*",
         }
+        if self.config.BACKBONE in ["resnet50", "resnet101"]:
+            # From a specific Resnet stage and up
+            stage_regex = { "3+": r"(res3.*)|(bn3.*)|(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                            "4+": r"(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                            "5+": r"(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)" }
+        elif self.config.BACKBONE in ["mobilenetv1"]:
+            # From a specific Mobilenetv1 stage and up
+            stage_regex = { "3+": r"(conv.*5.*)|(conv.*6.*)|(conv.*7.*)|(conv.*8.*)|(conv.*9.*)|(conv.*10.*)|(conv.*11.*)|(conv.*12.*)|(conv.*13.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                            "4+": r"(conv.*11.*)|(conv.*12.*)|(conv.*13.*)|(bn4.*)|(mob5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                            "5+": r"(conv.*13.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)" }
+        elif self.config.BACKBONE in ["mobilenetv2"]:
+            # From a specific Mobilenetv2 stage and up
+            stage_regex = { "3+": r"(conv.*6.*)|(conv.*7.*)|(conv.*8.*)|(conv.*9.*)|(conv.*10.*)|(conv.*11.*)|(conv.*12.*)|(conv.*13.*)|(conv.*14.*)|(conv.*15.*)|(conv.*16.*)|(conv.*17.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                            "4+": r"(conv.*13.*)|(conv.*14.*)|(conv.*15.*)|(conv.*16.*)|(conv.*17.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                            "5+": r"(conv.*17.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)" }
+
+        layer_regex.update(stage_regex)
+
         if layers in layer_regex.keys():
             layers = layer_regex[layers]
 
-        # Data keypoint generators
+        # Data bodyweight generators
 
         train_generator = data_generator_bodyweight(train_dataset, self.config, shuffle=True,
                                         batch_size=self.config.BATCH_SIZE,augment =True)
@@ -2904,7 +3328,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def unmold_keypoint_detections(self, detections, image_shape, window, mrcnn_mask, mrcnn_bodyweight):
+    def unmold_bw_detections(self, detections, image_shape, window, mrcnn_mask, mrcnn_bodyweight):
         """Reformats the detections of one image from the format of the neural
         network output to a format suitable for use in the rest of the
         application.
@@ -2952,7 +3376,7 @@ class MaskRCNN():
         # stages of training when the network weights are still a bit random.
         exclude_ix = np.where(
             (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
-        bodyweights = np.multiply(bodyweights, 4000)
+        bodyweights = np.multiply(bodyweights, 2500)
         if exclude_ix.shape[0] > 0:
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)
@@ -3021,7 +3445,7 @@ class MaskRCNN():
         results = []
         for i, image in enumerate(images):
             final_rois, final_class_ids, final_scores, final_bodyweight, final_masks=\
-                self.unmold_keypoint_detections(detections[i], image.shape, windows[i], mrcnn_mask[i], mrcnn_bodyweight[i])
+                self.unmold_bw_detections(detections[i], image.shape, windows[i], mrcnn_mask[i], mrcnn_bodyweight[i])
             results.append({
                 "rois": final_rois,
                 "class_ids": final_class_ids,
@@ -3139,7 +3563,6 @@ class MaskRCNN():
             log(k, v)
         return outputs_np
 
-
 ############################################################
 #  Data Formatting
 ############################################################
@@ -3163,7 +3586,6 @@ def compose_image_meta(image_id, image_shape, window, active_class_ids):
     )
     return meta
 
-
 def parse_image_meta_graph(meta):
     """Parses a tensor that contains image attributes to its components.
     See compose_image_meta() for more details.
@@ -3176,19 +3598,22 @@ def parse_image_meta_graph(meta):
     active_class_ids = meta[:, 8:]
     return [image_id, image_shape, window, active_class_ids]
 
-
 def mold_image(images, config):
     """Takes RGB images with 0-255 values and subtraces
     the mean pixel and converts it to float. Expects image
     colors in RGB order.
     """
-    return images.astype(np.float32) - config.MEAN_PIXEL
-
+    if config.BACKBONE in ["mobilenetv1","mobilenetv2"]:
+        return images.astype(np.float32)/127.5 - 1.0
+    if config.BACKBONE in ["resnet50","resnet101"]:
+        images.astype(np.float32) - config.MEAN_PIXEL
 
 def unmold_image(normalized_images, config):
     """Takes a image normalized with mold() and returns the original."""
-    return (normalized_images + config.MEAN_PIXEL).astype(np.uint8)
-
+    if config.BACKBONE in ["mobilenetv1","mobilenetv2"]:
+        return ((normalized_images +1)*127.5).astype(np.uint8)
+    if config.BACKBONE in ["resnet50","resnet101"]:
+        return (normalized_images + config.MEAN_PIXEL).astype(np.uint8)
 
 ############################################################
 #  Miscellenous Graph Functions
@@ -3204,7 +3629,6 @@ def trim_zeros_graph(boxes, name=None):
     non_zeros = tf.cast(tf.reduce_sum(tf.abs(boxes), axis=1), tf.bool)
     boxes = tf.boolean_mask(boxes, non_zeros, name=name)
     return boxes, non_zeros
-
 
 def batch_pack_graph(x, counts, num_rows):
     """Picks different number of values from each row
