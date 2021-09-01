@@ -2307,7 +2307,7 @@ class MaskRCNN():
             image_scale = K.cast(K.stack([h, w, h, w], axis=0), tf.float32)
             gt_boxes = KL.Lambda(lambda x: x / image_scale,name="gt_boxes")(input_gt_boxes)
             # 3. GT Body Weights of cuys
-            body_weight_scale = K.cast(K.stack([4000], axis=0), tf.float32)
+            body_weight_scale = K.cast(K.stack([2500], axis=0), tf.float32)
             input_gt_bodyweight = KL.Input(
                 shape=[None], name="input_weight", dtype=tf.float32)
             gt_bodyweight = KL.Lambda(lambda x: x / body_weight_scale, name="gt_weight")(input_gt_bodyweight)
@@ -2712,7 +2712,7 @@ class MaskRCNN():
             self.config.NAME.lower(), now))
 
         # Path to save after each epoch. Include placeholders that get filled by Keras.
-        self.checkpoint_path = os.path.join(self.log_dir, "mask_rcnn_{}_*epoch*.h5".format(
+        self.checkpoint_path = os.path.join(self.log_dir, "weight_mask_rcnn_{}_*epoch*.h5".format(
             self.config.NAME.lower()))
         self.checkpoint_path = self.checkpoint_path.replace(
             "*epoch*", "{epoch:04d}")
@@ -2941,7 +2941,7 @@ class MaskRCNN():
         # stages of training when the network weights are still a bit random.
         exclude_ix = np.where(
             (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
-        bodyweights = np.multiply(bodyweights, 4000)
+        bodyweights = np.multiply(bodyweights, 2500)
         if exclude_ix.shape[0] > 0:
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)
