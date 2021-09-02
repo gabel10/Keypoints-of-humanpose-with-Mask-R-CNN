@@ -605,7 +605,7 @@ def _bottleneck(inputs, filters, kernel, t, s, r=False, alpha=1.0, block_id=1, t
         x = KL.add([x, inputs], name='res{}'.format(block_id))
     return x
 
-def _inverted_residual_block(inputs, filters, kernel, t, strides, n, alpha, block_id, train_bn):
+def _inverted_residual_block(inputs, filters, kernel, t, strides, n, alpha, block_id, train_bn=False):
     """Inverted Residual Block
     This function defines a sequence of 1 or more identical layers.
     # Arguments
