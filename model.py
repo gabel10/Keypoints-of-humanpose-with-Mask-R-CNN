@@ -3408,8 +3408,7 @@ class MaskRCNN():
         keypoints: [batch, N, num_keypoints, 3] (x, y, v), keypoint x, y coordinate and valid
         """
         assert self.mode == "inference", "Create model in inference mode."
-        assert len(
-            images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
+        assert len(images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
 
         if verbose:
             log("Processing {} images".format(len(images)))
@@ -3604,7 +3603,7 @@ def mold_image(images, config):
     if config.BACKBONE in ["mobilenetv1","mobilenetv2"]:
         return images.astype(np.float32)/127.5 - 1.0
     if config.BACKBONE in ["resnet50","resnet101"]:
-        images.astype(np.float32) - config.MEAN_PIXEL
+        return images.astype(np.float32) - config.MEAN_PIXEL
 
 def unmold_image(normalized_images, config):
     """Takes a image normalized with mold() and returns the original."""
