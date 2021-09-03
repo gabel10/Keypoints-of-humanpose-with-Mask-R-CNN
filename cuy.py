@@ -74,7 +74,7 @@ class CuyConfig(Config):
     # Number of max detectiosn per images
     DETECTION_MAX_INSTANCES = 10
     # Backbone of the Mask RCNN (resnet50, resnet101, mobilenetv1, mobilenetv2)
-    BACKBONE = "mobilenetv1"
+    BACKBONE = "resnet101"
 
 ############################################################
 #  Dataset
