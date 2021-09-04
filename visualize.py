@@ -164,7 +164,7 @@ def display_instances_bw(image, boxes, masks, bodyweight,class_ids, class_names,
     """
     # Number of instances
     N = boxes.shape[0]
-    log(class_ids.shape[0])
+    #log(class_ids.shape[0])
     if not N:
         print("\n*** No instances to display *** \n")
     else:
@@ -201,9 +201,9 @@ def display_instances_bw(image, boxes, masks, bodyweight,class_ids, class_names,
         class_id = class_ids[i]
         score = scores[i] if scores is not None else None
         label = class_names[class_id]
-        bw = bodyweight[i]
+        bw = bodyweight[i][0]
         # x = random.randint(x1, (x1 + x2) // 2)
-        caption = "{} {:.3f}".format(label, score) if score else label
+        caption = "{}({:.3f}) - bw: {:.2f}".format(label, score, bw) if score else label
         ax.text(x1, y1 + 8, caption,
                 color='w', size=11, backgroundcolor="none")
 
