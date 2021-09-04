@@ -3131,7 +3131,7 @@ class MaskRCNN():
             self.config.BACKBONE.lower(), now))
 
         # Path to save after each epoch. Include placeholders that get filled by Keras.
-        self.checkpoint_path = os.path.join(self.log_dir, "weight_mask_rcnn_{}_{}*epoch*.h5".format(
+        self.checkpoint_path = os.path.join(self.log_dir, "weight_mask_rcnn_{}_{}_*epoch*.h5".format(
             self.config.NAME.lower(), self.config.BACKBONE.lower()))
         self.checkpoint_path = self.checkpoint_path.replace(
             "*epoch*", "{epoch:04d}")
