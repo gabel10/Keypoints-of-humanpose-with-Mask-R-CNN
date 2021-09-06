@@ -1718,7 +1718,7 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
     # ROI Pooling
     # Shape: [batch, num_rois, pool_height, pool_width, channels]
     x = PyramidROIAlign([pool_size, pool_size], image_shape,
-                        name="roi_align_mask")([rois] + feature_maps)
+                        name="roi_align_bw")([rois] + feature_maps)
 
     if backbone in ['resnet50','resnet101']:
         # Conv layers
@@ -1730,9 +1730,9 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
         x = KL.Activation('relu')(x)
 
         x = KL.TimeDistributed(KL.Conv2D(64, (3, 3), padding="same", activation="relu"), name="mrcnn_bw_conv3")(x)
-        x = KL.TImeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling1")(x)
+        x = KL.TimeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling1")(x)
         x = KL.TimeDistributed(KL.Conv2D(64, (3, 3), padding="same", activation="relu"), name="mrcnn_bw_conv4")(x)
-        x = KL.TImeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling2")(x)
+        x = KL.TimeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling2")(x)
 
         x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
         x = KL.TimeDistributed(KL.Dense(256, activation='relu'), name='mrcnn_bw_dense')(x)
@@ -1744,9 +1744,9 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
         x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
 
         x = KL.TimeDistributed(KL.Conv2D(64, (3, 3), padding="same", activation="relu"), name="mrcnn_bw_conv3")(x)
-        x = KL.TImeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling1")(x)
+        x = KL.TimeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling1")(x)
         x = KL.TimeDistributed(KL.Conv2D(64, (3, 3), padding="same", activation="relu"), name="mrcnn_bw_conv4")(x)
-        x = KL.TImeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling2")(x)
+        x = KL.TimeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling2")(x)
 
         x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_bw_flatten')(x)
         x = KL.TimeDistributed(KL.Dense(256, activation='relu'), name='mrcnn_bw_dense')(x)
@@ -2824,7 +2824,7 @@ class MaskRCNN():
                                     config.NUM_CLASSES,
                                     config.BACKBONE)
             elif config.BW_BRANCH == 'B':
-                mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(rois, mrcnn_feature_maps,
+                mrcnn_mask = build_fpn_mask_graph(rois, mrcnn_feature_maps,
                                     config.IMAGE_SHAPE,
                                     config.MASK_POOL_SIZE,
                                     config.NUM_CLASSES,
@@ -2832,7 +2832,8 @@ class MaskRCNN():
                 mrcnn_bodyweight = build_fpn_bodyweight_graph(rois, mrcnn_feature_maps,
                                     config.IMAGE_SHAPE,
                                     config.MASK_POOL_SIZE,
-                                    config.NUM_CLASSES)
+                                    config.NUM_CLASSES,
+                                    config.BACKBONE)
             # TODO: clean up (use tf.identify if necessary)
             output_rois = KL.Lambda(lambda x: x * 1, name="output_rois")(rois)
 
@@ -2893,7 +2894,7 @@ class MaskRCNN():
                                               config.NUM_CLASSES,
                                               config.BACKBONE)
             elif config.BW_BRANCH == 'B':
-                mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_graph(detection_boxes, mrcnn_feature_maps,
+                mrcnn_mask = build_fpn_mask_graph(detection_boxes, mrcnn_feature_maps,
                                                  config.IMAGE_SHAPE,
                                                  config.MASK_POOL_SIZE,
                                                  config.NUM_CLASSES,
@@ -2901,7 +2902,8 @@ class MaskRCNN():
                 mrcnn_bodyweight = build_fpn_bodyweight_graph(detection_boxes, mrcnn_feature_maps,
                                                   config.IMAGE_SHAPE,
                                                   config.MASK_POOL_SIZE,
-                                                  config.NUM_CLASSES)
+                                                  config.NUM_CLASSES,
+                                                  config.BACKBONE)
 
             model = KM.Model([input_image, input_image_meta],
                              [detections, mrcnn_class, mrcnn_bbox, rpn_rois, rpn_class, rpn_bbox, mrcnn_mask, mrcnn_bodyweight],
