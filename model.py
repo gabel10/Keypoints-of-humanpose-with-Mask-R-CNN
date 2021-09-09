@@ -1505,7 +1505,7 @@ def fpn_classifier_graph(rois, feature_maps,
 
     return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox
 
-def _timedistributed_depthwise_conv_block(inputs, pointwise_conv_filters, strides=(1, 1), block_id=1, train_bn=False):
+def _timedistributed_depthwise_conv_block(inputs, pointwise_conv_filters, strides=(1, 1), block_id=1, name='mask', train_bn=False):
     """
         Similiar to the _depthwise_conv_block used in the Backbone,
         but with each layer wrapped in a TimeDistributed layer,
@@ -1520,21 +1520,21 @@ def _timedistributed_depthwise_conv_block(inputs, pointwise_conv_filters, stride
                     depth_multiplier=1,
                     strides=strides,
                     use_bias=False),
-                    name='mrcnn_mask_conv_dw_{}'.format(block_id))(inputs)
+                    name='mrcnn_{}_conv_dw_{}'.format(name, block_id))(inputs)
     x = KL.TimeDistributed(BatchNorm(axis=channel_axis),
-                    name='mrcnn_mask_conv_dw_{}_bn'.format(block_id))(x, training=train_bn)
-    x = KL.Activation(relu6, name='mrcnn_mask_conv_dw_{}_relu'.format(block_id))(x)
+                    name='mrcnn_{}_conv_dw_{}_bn'.format(name, block_id))(x, training=train_bn)
+    x = KL.Activation(relu6, name='mrcnn_{}_conv_dw_{}_relu'.format(name, block_id))(x)
     # Pointwise
     x = KL.TimeDistributed(KL.Conv2D(pointwise_conv_filters,
                     (1, 1),
                     padding='same',
                     use_bias=False,
                     strides=(1, 1)),
-                    name='mrcnn_mask_conv_pw_{}'.format(block_id))(x)
+                    name='mrcnn_{}_conv_pw_{}'.format(name, block_id))(x)
     x = KL.TimeDistributed(BatchNorm(
                     axis=channel_axis),
-                    name='mrcnn_mask_conv_pw_{}_bn'.format(block_id))(x, training=train_bn)
-    return KL.Activation(relu6, name='mrcnn_mask_conv_pw_{}_relu'.format(block_id))(x)
+                    name='mrcnn_{}_conv_pw_{}_bn'.format(name, block_id))(x, training=train_bn)
+    return KL.Activation(relu6, name='mrcnn_{}_conv_pw_{}_relu'.format(name, block_id))(x)
 
 def build_fpn_mask_bw_graph(rois, feature_maps,
                          image_shape, pool_size, num_classes, backbone, train_bn=False):
@@ -1590,10 +1590,10 @@ def build_fpn_mask_bw_graph(rois, feature_maps,
         mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'), name='mrcnn_bodyweight')(x)
     
     if backbone in ['mobilenetv1', 'mobilenetv2']:
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, train_bn = train_bn)
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, train_bn = train_bn)
-        shared = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, name='mask', train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, name='mask', train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, name='mask', train_bn = train_bn)
+        shared = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, name='mask', train_bn = train_bn)
 
         x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
                             name="mrcnn_mask_deconv1")(shared)
@@ -1602,7 +1602,7 @@ def build_fpn_mask_bw_graph(rois, feature_maps,
         mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
                            name="mrcnn_mask")(x)
         
-        x = _timedistributed_depthwise_conv_block(shared, 256, block_id = 5, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(shared, 256, block_id = 5, name='mask', train_bn = train_bn)
         x = KL.TimeDistributed(KL.Flatten(), name='mrcnn_cbw_flatten')(x)
         x = KL.TimeDistributed(KL.Dense(1024, activation='linear'), name='mrcnn_cbw_dense1')(x)
         mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'),
@@ -1655,10 +1655,10 @@ def build_fpn_mask_graph(rois, feature_maps,
         mrcnn_mask = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"), name="mrcnn_mask")(x)
     
     if backbone in ['mobilenetv1', 'mobilenetv2']:
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, train_bn = train_bn)
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, train_bn = train_bn)
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, name='mask', train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, name='mask', train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 3, name='mask', train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 4, name='mask', train_bn = train_bn)
 
         x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), name="mrcnn_mask_deconv1")(x)
         x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"), name="mrcnn_mask_deconv2")(x)
@@ -1740,8 +1740,8 @@ def build_fpn_bodyweight_graph(rois, feature_maps,
         mrcnn_bodyweight = KL.TimeDistributed(KL.Dense(num_classes, activation='linear'), name='mrcnn_bodyweight')(x)
 
     if backbone in ['mobilenetv1', 'mobilenetv2']:
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, train_bn = train_bn)
-        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 1, name='bw', train_bn = train_bn)
+        x = _timedistributed_depthwise_conv_block(x, 256, block_id = 2, name='bw', train_bn = train_bn)
 
         x = KL.TimeDistributed(KL.Conv2D(64, (3, 3), padding="same", activation="relu"), name="mrcnn_bw_conv3")(x)
         x = KL.TimeDistributed(KL.MaxPooling2D(), name="mrcnn_bw_maxpooling1")(x)
@@ -2986,7 +2986,7 @@ class MaskRCNN():
         from keras.utils.data_utils import get_file
         no_top=True
         if no_top:
-            if self.config.BACKBONE == "resnet50":
+            if self.config.BACKBONE == "resnet101":
                 TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
                                          'releases/download/v0.2/'\
                                          'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
