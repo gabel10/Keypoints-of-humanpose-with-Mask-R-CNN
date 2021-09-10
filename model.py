@@ -2887,7 +2887,7 @@ class MaskRCNN():
                 lambda x: x[..., :4] / np.array([h, w, h, w]))(detections)
 
             # Create masks for detections
-            if config.BW_BRACH == 'A':
+            if config.BW_BRANCH == 'A':
                 mrcnn_mask, mrcnn_bodyweight = build_fpn_mask_bw_graph(detection_boxes, mrcnn_feature_maps,
                                               config.IMAGE_SHAPE,
                                               config.MASK_POOL_SIZE,
