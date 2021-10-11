@@ -59,7 +59,8 @@ class CuyConfig(Config):
     NUM_CLASSES = 1 + 1  # Background + cuy
     # Number of epochs to train, and training steps per epoch
     EPOCHS = 50
-    STEPS_PER_EPOCH = 500
+    STEPS_PER_EPOCH = 1000
+    VALIDATION_STEPS = 100
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
     # Mode and size of the input image
@@ -69,13 +70,14 @@ class CuyConfig(Config):
     # Number of ROIS to train per image
     TRAIN_ROIS_PER_IMAGE = 100
     # Mine Mask Shape
+    USE_MINI_MASK = False
     MINI_MASK_SHAPE = (56, 56)
     MASK_SHAPE = [56, 56]
     # Number of max detectiosn per images
     DETECTION_MAX_INSTANCES = 10
     # Backbone of the Mask RCNN (resnet50, resnet101, mobilenetv1, mobilenetv2)
-    BACKBONE = "mobilenetv1"
-    BW_BRANCH = "A"
+    BACKBONE = "resnet101"
+    BW_BRANCH = "B"
 
 ############################################################
 #  Dataset
