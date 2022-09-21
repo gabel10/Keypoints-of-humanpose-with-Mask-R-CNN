@@ -1,5 +1,5 @@
-﻿# Use the maskrcnn for the humanpose keypoints detection
-mask rcnn can be used to the human keypoints detection
+﻿# Use the maskrcnn for the cuy bodyweight estimation
+mask rcnn can be used to the weight estimation of cuy
 
 
 # Requirements
@@ -22,7 +22,7 @@ To train or test on MS COCO, you'll also need:
  -   [MS COCO Dataset](http://cocodataset.org/#home)
  -   Download the 5K  [minival](https://dl.dropboxusercontent.com/s/o43o90bna78omob/instances_minival2014.json.zip?dl=0)  and the 35K  [validation-minus-minival](https://dl.dropboxusercontent.com/s/s3tw5zcg7395368/instances_valminusminival2014.json.zip?dl=0)  subsets. More details in the original  [Faster R-CNN implementation](https://github.com/rbgirshick/py-faster-rcnn/blob/master/data/README.md).
  
-3、Download pre-trained COCO weights (mask_rcnn_coco_humanpose.h5) from the release page
+3、Download pre-trained COCO weights from the release page
 4、(Optional) To train or test on MS COCO install  `pycocotools`  from one of these repos. They are forks of the original pycocotools with fixes for Python3 and Windows (the official repo doesn't seem to be active anymore).
 
 -   Linux:  [https://github.com/waleedka/coco](https://github.com/waleedka/coco)
